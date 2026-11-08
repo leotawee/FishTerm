@@ -151,3 +151,13 @@ Repo hygiene:
 - **Fix:** `await document.fonts.load('15px "Fira Code"')` before `term.open()`; `ResizeObserver` on the terminal box instead of `window.resize`, one fit per animation frame, `session_resize` only when cols/rows change (was sent twice); Home list `flex-1 min-h-0` inside a full-height Container; Dialog `p-4` + `max-h-[calc(100vh-2rem)]`; tab strip `overflow-x-auto` + `shrink-0`, active tab `scrollIntoView`.
 - **Verified (same harness):** list ends at 420px of 456 and scrolls to the last host; dialog 16→440 of 456; terminal never overflows across 1100×700 → 700×420 → 1300×800 → 640×400 → 1100×700; nav stays 44px with 4 tabs and the newest tab is visible. `vue-tsc` + build OK.
 - **Lesson:** 📌 GENERAL: when a bug only shows "the first time", re-run the exact original sequence; a simplified repro can falsely disprove the right hypothesis. 📌 GENERAL: size xterm.js after its web font has loaded, and observe the container, not the window.
+
+## [--:--] Release prep (macOS) — blocked on an unexplained exit
+
+- **Action:** checks green (cargo test 27/27, clippy, fmt, build); commit `0ed9f39`; `bun run tauri build` → `FishTerm.app` 9.86 MiB, `FishTerm_0.1.0_aarch64.dmg` 4.73 MiB, sha256 `5b579d33…7220`, ad-hoc signed (no Developer ID).
+- **Problem:** smoke launches of the bundle "EXITED" within 6–8 s on 2 of 5 runs (once logging `web content process terminated`); the raw `target/release/fishterm` stayed up; later bundle runs stayed up.
+- **Confounder found:** a run's log shows `session opened` → `session closed` 1 s later for a saved host. The app never auto-connects, so a person was using the windows I launched. "EXITED" may be the window being closed by hand. Stopped launching windows to avoid interfering.
+- **Open question:** that session closed cleanly 1 s after opening, preceded by `WARN ssh error=Disconnect`. Could be the server ending the shell or a client bug; needs Leo's account of what happened.
+- **Lesson:** smoke tests that spawn GUI windows on the user's desktop are not isolated; a human can be part of the result. Ask before interpreting.
+- **Resolved:** Leo confirmed he clicked/closed those windows. The exits were manual, not crashes. The `WARN ssh error=Disconnect` before that session is still unexplained (session itself opened fine); tracked as a follow-up.
+- **Decision:** Leo approved `git push origin tauri-rust` + GitHub pre-release `v0.1.0` with the aarch64 dmg.
