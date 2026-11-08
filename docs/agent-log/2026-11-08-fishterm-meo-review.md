@@ -102,3 +102,10 @@ Repo hygiene:
   2. 📌 GENERAL: Make the secret impossible to serialize (type has no field) instead of remembering to strip it.
   3. Read a dependency's source when its major version jumped; don't code from memory.
 - Mistakes & dead ends: `gh repo fork --remote` flag; `ls` alias printed nothing (used `/bin/ls`); `echo ===` breaks in zsh; TS 7; postcss leftover; cargo add without lib.rs; clippy expect/test cfg.
+
+## [--:--] Commit phase 1-2 + remove Electron leftovers
+
+- **Action:** commit `2405c3d`. `git rm -r` 18 leftover files (builder config, eslint/prettier hooks, postcss/tailwind/vitest configs, `scripts/ types/ version/ .github/workflows`). Removed the `css.postcss` workaround from `vite.config.ts`.
+- **Why:** Leo approved (1, 2). Old CI would run `npm ci` against a lockfile that no longer exists. The workaround only existed because of `postcss.config.js`.
+- **Result:** `bun run build` OK after removal. First `git rm` failed: zsh does not word-split `$T`; used `${=T}`.
+- **Lesson:** 📌 GENERAL: in zsh, `$VAR` with spaces stays one word. Use an array or `${=VAR}`. Delete workarounds when their cause goes.

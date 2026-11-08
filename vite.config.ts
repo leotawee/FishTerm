@@ -6,8 +6,6 @@ export default defineConfig({
     root: 'ui',
     plugins: [vue()],
     clearScreen: false,
-    // WHY: no PostCSS in this app; inline config stops Vite from picking up stray root configs.
-    css: {postcss: {}},
     server: {port: 1420, strictPort: true},
     build: {
         outDir: '../dist',
