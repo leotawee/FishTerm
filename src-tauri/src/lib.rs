@@ -4,6 +4,7 @@ mod commands;
 mod error;
 mod secrets;
 mod ssh;
+mod stats;
 mod store;
 
 use commands::AppState;
@@ -23,6 +24,12 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
+        // Must be first: blocks a second process that would rewrite hosts.json from stale memory.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_focus();
+            }
+        }))
         // Only `open` is granted (capabilities/default.json): picks a key file path.
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -45,6 +52,7 @@ pub fn run() {
             commands::session_write,
             commands::session_resize,
             commands::session_close,
+            commands::session_stats,
             commands::hostkey_decide,
         ])
         .run(tauri::generate_context!())

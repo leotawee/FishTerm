@@ -22,8 +22,39 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import {faCloudflare} from '@fortawesome/free-brands-svg-icons';
 
+import {
+    faDebian,
+    faUbuntu,
+    faRaspberryPi,
+    faRedhat,
+    faCentos,
+    faFedora,
+    faOpensuse,
+    faSuse,
+    faArchLinux,
+    faAmazon,
+    faFreebsd,
+    faApple,
+    faWindows,
+    faLinux,
+} from '@fortawesome/free-brands-svg-icons';
+
 library.add(
     faCloudflare,
+    faDebian,
+    faUbuntu,
+    faRaspberryPi,
+    faRedhat,
+    faCentos,
+    faFedora,
+    faOpensuse,
+    faSuse,
+    faArchLinux,
+    faAmazon,
+    faFreebsd,
+    faApple,
+    faWindows,
+    faLinux,
     faChevronDown,
     faTerminal,
     faKey,

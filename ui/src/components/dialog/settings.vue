@@ -1,5 +1,15 @@
 <script lang="ts" setup>
-import {hostSave, hostSetSecret, hostDelete, errorOf, type HostView, type HostInput} from '../../api';
+import {
+    hostClearSecret,
+    hostSave,
+    hostSetSecret,
+    hostDelete,
+    errorOf,
+    type HostView,
+    type HostInput,
+    type Os,
+} from '../../api';
+import {osIcon} from '../../osIcons';
 
 import Title from '../Title.vue';
 import Text from '../input/text.vue';
@@ -26,6 +36,8 @@ const previousConnectionData = ref('');
 
 const showModal = ref(false);
 const error = ref('');
+// Hide the forget button after clearing; `props.host` stays stale until the list reloads.
+const secretCleared = ref(false);
 
 const config = reactive({
     data: {
@@ -39,6 +51,7 @@ const config = reactive({
                 type: 0,
             },
         },
+        os: 'generic' as Os,
     },
 });
 
@@ -68,6 +81,28 @@ const selectConnectionType = ref([
     },
 ]);
 
+const selectOsType = ref(
+    (
+        [
+            {name: 'Generic', value: 'generic'},
+            {name: 'Linux (other)', value: 'linux'},
+            {name: 'Debian', value: 'debian'},
+            {name: 'Ubuntu', value: 'ubuntu'},
+            {name: 'Raspberry Pi OS', value: 'raspberry_pi_os'},
+            {name: 'Red Hat', value: 'redhat'},
+            {name: 'CentOS', value: 'centos'},
+            {name: 'Fedora', value: 'fedora'},
+            {name: 'Amazon Linux', value: 'amazon'},
+            {name: 'openSUSE', value: 'opensuse'},
+            {name: 'SUSE', value: 'suse'},
+            {name: 'Arch Linux', value: 'arch_linux'},
+            {name: 'FreeBSD', value: 'freebsd'},
+            {name: 'macOS', value: 'apple'},
+            {name: 'Windows', value: 'windows'},
+        ] as Array<{name: string; value: Os}>
+    ).map(o => ({...o, icon: osIcon(o.value)})),
+);
+
 // A secret already in the keychain still fits only if the auth type is unchanged.
 const hasSavedSecret = computed(
     () =>
@@ -94,6 +129,7 @@ async function updateSSH(e: Event) {
         port: isTunnel ? 22 : Number(config.data.connection.port),
         username: config.data.connection.username.trim(),
         transport: isTunnel ? 'cloudflare_access' : 'direct',
+        os: config.data.os,
         auth: isKey ? {kind: 'key', path: previewPasswordData.value} : {kind: 'password'},
     };
 
@@ -121,6 +157,16 @@ async function deleteConfig() {
     }
 }
 
+async function forgetSecret() {
+    if (!props.host) return;
+    try {
+        await hostClearSecret(props.host.id);
+        secretCleared.value = true;
+    } catch (err) {
+        error.value = errorOf(err).message;
+    }
+}
+
 function updatePrivateKey(path: string) {
     previewPasswordData.value = path;
 }
@@ -144,6 +190,7 @@ onMounted(() => {
     config.data.connection.port = h.port;
     config.data.connection.username = h.username;
     config.data.connection.password.type = h.auth.kind === 'key' ? 1 : 0;
+    config.data.os = h.os;
 
     previousConnectionType.value = config.data.connection.type;
     previewConnectionData.value = h.host;
@@ -156,10 +203,7 @@ onMounted(() => {
 </script>
 
 <template>
-    <Title
-        title="Setting"
-        icon="settings"
-    />
+    <Title title="Setting" />
     <hr class="m-3" />
     <form
         @submit="updateSSH"
@@ -190,6 +234,7 @@ onMounted(() => {
             <Text
                 v-model.number="config.data.connection.port"
                 name="SSH Port"
+                type="number"
                 placeholder="22"
                 :required="true"
             />
@@ -207,6 +252,11 @@ onMounted(() => {
             name="Username"
             placeholder="root"
             :required="true"
+        />
+        <Select
+            v-model="config.data.os"
+            name="Operating System"
+            :data="selectOsType"
         />
         <Select
             v-model="config.data.connection.password.type"
@@ -237,10 +287,22 @@ onMounted(() => {
                 type="password"
                 name="Passphrase"
                 :placeholder="
-                    hasSavedSecret ? 'Saved in keychain. Leave blank to keep it.' : 'Only if the key is encrypted'
+                    hasSavedSecret
+                        ? 'Saved in keychain. Leave blank to keep it.'
+                        : 'Only if the key is encrypted'
                 "
             />
         </template>
+
+        <!-- Forget a saved secret without deleting the host -->
+        <Button
+            v-if="hasSavedSecret && !secretCleared"
+            class="w-full !bg-gray-500"
+            type="button"
+            @click="forgetSecret"
+        >
+            Forget saved password
+        </Button>
 
         <p
             v-if="error"
@@ -257,7 +319,7 @@ onMounted(() => {
         <Button
             v-if="props.actionType !== 'add'"
             @click="showModal = true"
-            :class="`!bg-red-500`"
+            :class="`!bg-red-500 !hover:bg-red-600`"
             class="mr-2 mt-3 mb-2 w-full"
             type="button"
         >
@@ -272,7 +334,7 @@ onMounted(() => {
                 <div class="space-y-1">
                     <Button
                         v-if="props.actionType !== 'add'"
-                        :class="`!bg-red-500`"
+                        :class="`!bg-red-500 !hover:bg-red-600`"
                         class="mr-2 mt-3 mb-2 w-full"
                         type="button"
                         @click="deleteConfig"

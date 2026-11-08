@@ -2,7 +2,6 @@
 import iconUrl from '../../../assets/logo.svg?url';
 
 const version = __APP_VERSION__;
-
 </script>
 
 <template>

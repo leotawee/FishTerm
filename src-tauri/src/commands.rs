@@ -4,10 +4,12 @@
 use crate::error::{AppError, AppResult};
 use crate::secrets::{SecretStore, host_account};
 use crate::ssh::{self, Ask, Cmd, Credential, Target};
+use crate::stats::{self, Sample, Stats};
 use crate::store::{Auth, Host, HostInput, HostStore, Transport};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::{mpsc, oneshot};
@@ -16,6 +18,9 @@ use uuid::Uuid;
 const MAX_SECRET_LEN: usize = 8192;
 const MAX_WRITE_LEN: usize = 64 * 1024;
 const MAX_TERM_DIM: u32 = 1000;
+const STATS_WAIT: Duration = Duration::from_secs(6);
+// Linux only; missing /proc entries simply leave the matching footer field as `--`.
+const STATS_CMD: &str = "cat /proc/stat /proc/meminfo /proc/net/dev 2>/dev/null; df -k / 2>/dev/null";
 
 pub struct AppState {
     store: Mutex<HostStore>,
@@ -23,6 +28,8 @@ pub struct AppState {
     warnings: Mutex<Vec<String>>,
     known_hosts: PathBuf,
     sessions: Mutex<HashMap<Uuid, mpsc::UnboundedSender<Cmd>>>,
+    /// Previous /proc snapshot per session, for CPU% and network-rate deltas.
+    samples: Mutex<HashMap<Uuid, (Sample, Instant)>>,
     prompts: Mutex<HashMap<Uuid, oneshot::Sender<bool>>>,
 }
 
@@ -39,6 +46,7 @@ impl AppState {
             warnings: Mutex::new(warnings),
             known_hosts,
             sessions: Mutex::new(HashMap::new()),
+            samples: Mutex::new(HashMap::new()),
             prompts: Mutex::new(HashMap::new()),
         }
     }
@@ -94,6 +102,29 @@ impl AppState {
     pub fn resize(&self, id: Uuid, cols: u32, rows: u32) -> AppResult<()> {
         check_dims(cols, rows)?;
         self.send(id, Cmd::Resize { cols, rows })
+    }
+
+    /// Footer stats: exec a `/proc`+`df` snapshot on a separate channel, diff against
+    /// the previous sample. First call per session yields rates as `None`.
+    pub async fn stats(&self, id: Uuid) -> AppResult<Stats> {
+        let (tx, rx) = oneshot::channel();
+        self.send(id, Cmd::Exec {
+            command: STATS_CMD.into(),
+            reply: tx,
+        })?;
+        let text = match tokio::time::timeout(STATS_WAIT, rx).await {
+            Ok(Ok(text)) => text?,
+            Ok(Err(_)) => return Err(AppError::NotFound), // shell loop already gone
+            Err(_) => return Err(AppError::Timeout),
+        };
+        let now = stats::parse(&text);
+        let prev = self
+            .samples
+            .lock()
+            .map_err(|_| AppError::Internal)?
+            .insert(id, (now, Instant::now()));
+        let secs = prev.as_ref().map(|(_, at)| at.elapsed().as_secs_f64()).unwrap_or(0.0);
+        Ok(stats::diff(prev.map(|(s, _)| s), now, secs))
     }
 
     pub fn decide(&self, prompt_id: Uuid, accept: bool) -> AppResult<()> {
@@ -270,6 +301,9 @@ async fn open_session(
         if let Ok(mut s) = app.state::<AppState>().sessions.lock() {
             s.remove(&sid);
         }
+        if let Ok(mut s) = app.state::<AppState>().samples.lock() {
+            s.remove(&sid);
+        }
         if let Err(e) = &result {
             tracing::error!(session = %sid, error = ?e, "session ended with error");
         }
@@ -293,6 +327,11 @@ pub fn session_resize(state: State<'_, AppState>, id: Uuid, cols: u32, rows: u32
 }
 
 #[tauri::command]
+pub async fn session_stats(state: State<'_, AppState>, id: Uuid) -> AppResult<Stats> {
+    logged(state.stats(id).await)
+}
+
+#[tauri::command]
 pub fn session_close(state: State<'_, AppState>, id: Uuid) -> AppResult<()> {
     logged(state.send(id, Cmd::Close))
 }
@@ -306,6 +345,7 @@ pub fn hostkey_decide(state: State<'_, AppState>, prompt_id: Uuid, accept: bool)
 mod tests {
     use super::*;
     use crate::secrets::memory::MemoryStore;
+    use crate::store::Os;
     use std::sync::Arc;
 
     struct Shared(Arc<MemoryStore>);
@@ -345,6 +385,7 @@ mod tests {
             port: 22,
             username: "leo".into(),
             transport: Transport::Direct,
+            os: Os::Generic,
             auth: Auth::Password,
         }
     }
@@ -389,6 +430,18 @@ mod tests {
         let h2 = s.save(i).unwrap();
         assert!(!h2.has_secret);
         assert!(mem.get(&host_account(&h.id)).unwrap().is_none());
+    }
+
+    #[test]
+    fn clear_secret_is_idempotent_and_unsets_flag() {
+        let (s, mem, _d) = setup();
+        let h = s.save(input()).unwrap();
+        s.set_secret(h.id, "pw".into()).unwrap();
+        s.clear_secret(h.id).unwrap();
+        assert!(!s.list().unwrap()[0].has_secret);
+        assert!(mem.get(&host_account(&h.id)).unwrap().is_none());
+        // Deleting twice is fine.
+        assert!(s.clear_secret(h.id).is_ok());
     }
 
     #[test]

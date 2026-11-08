@@ -31,17 +31,19 @@ onMounted(async () => {
 
 watch(tabIndex, (n: string) => {
     document.title = terminal[n]?.title || 'Home';
-    nextTick(() => document.querySelector(`[data-tab="${n}"]`)?.scrollIntoView({inline: 'nearest'}));
+    nextTick(() =>
+        document.querySelector(`[data-tab="${n}"]`)?.scrollIntoView({inline: 'nearest'}),
+    );
 });
 </script>
 
 <template>
     <div class="flex flex-col h-screen">
-        <nav class="flex mx-auto bg-gray-200 z-50 w-full dark:dark:bg-slate-800 justify-between">
+        <nav class="flex mx-auto bg-gray-200 z-50 w-full dark:bg-slate-800 justify-between">
             <!-- Tabs scroll sideways instead of wrapping onto a second row on narrow windows. -->
             <div class="flex min-w-0 overflow-x-auto">
                 <button
-                    class="ml-2 space-x-8 w-[250px] shrink-0 mt-1 text-left"
+                    class="ml-2 space-x-8 w-[250px] shrink-0 text-left"
                     data-tab="home"
                     @click="tabIndex = 'home'"
                 >
@@ -66,8 +68,8 @@ watch(tabIndex, (n: string) => {
                             tabIndex === key ? 'pt-2 mt-1' : 'mt-2'
                         } py-1 rounded-t-lg border-r-3 dark:bg-white dark:hover:bg-slate-300`"
                     >
-                        <div class="flex justify-between">
-                            <p class="ml-2 inline-flex items-center truncate">
+                        <div class="flex justify-between items-center">
+                            <p class="ml-2 min-w-0 flex-1 truncate">
                                 {{ terminal[key]?.title }}
                             </p>
                             <button

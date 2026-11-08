@@ -3,6 +3,23 @@ import {Channel, invoke} from '@tauri-apps/api/core';
 // Mirrors `Host` in src-tauri/src/store.rs. Secrets are never part of this type.
 export type Transport = 'direct' | 'cloudflare_access';
 export type Auth = {kind: 'password'} | {kind: 'key'; path: string};
+// Mirrors `Os` in src-tauri/src/store.rs.
+export type Os =
+    | 'generic'
+    | 'debian'
+    | 'ubuntu'
+    | 'raspberry_pi_os'
+    | 'redhat'
+    | 'centos'
+    | 'fedora'
+    | 'opensuse'
+    | 'suse'
+    | 'arch_linux'
+    | 'amazon'
+    | 'freebsd'
+    | 'apple'
+    | 'windows'
+    | 'linux';
 
 export interface HostView {
     id: string;
@@ -11,6 +28,7 @@ export interface HostView {
     port: number;
     username: string;
     transport: Transport;
+    os: Os;
     auth: Auth;
     has_secret: boolean;
 }
@@ -22,6 +40,7 @@ export interface HostInput {
     port: number;
     username: string;
     transport: Transport;
+    os: Os;
     auth: Auth;
 }
 
@@ -44,6 +63,16 @@ export const hostSetSecret = (id: string, secret: string) =>
     invoke<void>('host_set_secret', {id, secret});
 export const hostClearSecret = (id: string) => invoke<void>('host_clear_secret', {id});
 export const startupWarnings = () => invoke<string[]>('startup_warnings');
+
+/** Footer monitor values; `null` renders as `--` (non-Linux host or first sample). */
+export interface SessionStats {
+    cpu: number | null;
+    mem: number | null;
+    disk: number | null;
+    rx_kbps: number | null;
+    tx_kbps: number | null;
+}
+export const sessionStats = (id: string) => invoke<SessionStats>('session_stats', {id});
 
 export interface HostKeyPrompt {
     host: string;

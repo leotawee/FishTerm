@@ -1,66 +1,16 @@
-import {watch, unref, onUnmounted} from 'vue';
+import {onUnmounted, unref} from 'vue';
 
-const EVENTS = ['mousedown', 'touchstart', 'pointerdown'];
-
-function unrefElement(target: any) {
-    return unref(target)?.$el ?? unref(target);
-}
-
-function useEventListener(target: Window, event: any, listener: any, options: Object) {
-    if (!target) return;
-
-    let cleanup = () => {};
-
-    watch(
-        () => unref(target),
-        el => {
-            cleanup();
-            if (!el) return;
-
-            // Add event listener
-            el.addEventListener(event, listener, options);
-            cleanup = () => {
-                el.removeEventListener(event, listener, options);
-            };
-        },
-        {
-            immediate: true,
-        },
-    );
-
-    const stop = () => cleanup();
-    onUnmounted(stop);
-
-    return stop;
-}
-
+// One captured `pointerdown` covers mouse, touch and pen, and beats inside-click handlers.
 export default function useClickOutside() {
     function onClickOutside(target: any, callback: Function) {
-        const listener = (event: any) => {
-            // Unreferenced element can be removed from DOM
-            const el = unrefElement(target);
+        const listener = (event: PointerEvent) => {
+            const el = unref(target)?.$el ?? unref(target);
             if (!el) return;
             if (el === event.target || event.composedPath().includes(el)) return;
-
             callback(event);
         };
-
-        let disposables = EVENTS.map(_event =>
-            useEventListener(window, _event, listener, {capture: true}),
-        );
-
-        const stop = () => {
-            disposables.forEach((stop: any) => {
-                try {
-                    stop();
-                } catch (e) {}
-            });
-            disposables = [];
-        };
-
-        onUnmounted(stop);
-
-        return stop;
+        document.addEventListener('pointerdown', listener, true);
+        onUnmounted(() => document.removeEventListener('pointerdown', listener, true));
     }
 
     return {

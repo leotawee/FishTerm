@@ -14,6 +14,28 @@ pub enum Transport {
     CloudflareAccess,
 }
 
+/// Display hint for the home-screen card; never used by the SSH layer.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Os {
+    #[default]
+    Generic,
+    Debian,
+    Ubuntu,
+    RaspberryPiOs,
+    Redhat,
+    Centos,
+    Fedora,
+    Opensuse,
+    Suse,
+    ArchLinux,
+    Amazon,
+    Freebsd,
+    Apple,
+    Windows,
+    Linux,
+}
+
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Auth {
@@ -34,6 +56,9 @@ pub struct Host {
     pub port: u16,
     pub username: String,
     pub transport: Transport,
+    /// Display hint for the home-screen card; never used by the SSH layer.
+    #[serde(default)]
+    pub os: Os,
     pub auth: Auth,
     /// A password/passphrase is stored in the keychain for this host.
     pub has_secret: bool,
@@ -49,6 +74,8 @@ pub struct HostInput {
     pub port: u16,
     pub username: String,
     pub transport: Transport,
+    #[serde(default)]
+    pub os: Os,
     pub auth: Auth,
 }
 
@@ -187,6 +214,7 @@ impl HostStore {
                     port: input.port,
                     username: input.username,
                     transport: input.transport,
+                    os: input.os,
                     auth: input.auth,
                     has_secret: slot.has_secret && !invalidated,
                 };
@@ -200,6 +228,7 @@ impl HostStore {
                     port: input.port,
                     username: input.username,
                     transport: input.transport,
+                    os: input.os,
                     auth: input.auth,
                     has_secret: false,
                 };
@@ -302,6 +331,7 @@ mod tests {
             port: 22,
             username: "leo".into(),
             transport: Transport::Direct,
+            os: Os::Generic,
             auth: Auth::Password,
         }
     }
@@ -473,6 +503,7 @@ mod tests {
                 "host",
                 "id",
                 "name",
+                "os",
                 "port",
                 "transport",
                 "username"

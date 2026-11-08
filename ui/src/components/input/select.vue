@@ -1,7 +1,9 @@
 <script lang="ts" setup>
-import {ref, nextTick, onBeforeUnmount} from 'vue';
+import {computed, ref} from 'vue';
 
 import useClickOutside from '../../plugins/useClickOutside';
+import {isImageIcon} from '../../osIcons';
+
 const {onClickOutside} = useClickOutside();
 
 const props = defineProps<SelectInfo>();
@@ -10,7 +12,6 @@ const emit = defineEmits(['update:modelValue', 'onChange']);
 interface SelectInfo {
     modelValue: any;
     name?: string;
-    type?: string;
     data: SelectData[];
 }
 
@@ -18,40 +19,28 @@ interface SelectData {
     name: string;
     value: string | number;
     icon?: string;
-    selected?: boolean;
 }
 
 // Select label
 const SLabel_isOpen = ref(false);
-const SLabel_dataPreview = ref<SelectData>({
-    name: '',
-    value: '',
-    icon: '',
-    selected: false,
-});
+// Pure: derived from props instead of mutated during render.
+const SLabel_dataPreview = computed(
+    () =>
+        props.data.find(item => item.value === props.modelValue) ?? {
+            name: '',
+            value: '',
+            icon: '',
+        },
+);
 // Select Box
 const SBox = ref(null);
-const SBox_Size = ref(0);
 // Variable
 let isClickedOutside = false;
 
 // Function
-function resizeSelectBox() {
-    const doc = document.getElementById('selectBox-label');
-    if (!doc) return;
-
-    SBox_Size.value = doc.getBoundingClientRect().width;
-}
-
 function clickSelectTextBox() {
-    nextTick(function () {
-        if (!isClickedOutside) SLabel_isOpen.value = !SLabel_isOpen.value;
-        else isClickedOutside = false;
-
-        if (SLabel_isOpen.value) {
-            resizeSelectBox();
-        }
-    });
+    if (!isClickedOutside) SLabel_isOpen.value = !SLabel_isOpen.value;
+    else isClickedOutside = false;
 }
 
 function SelectItem(data: SelectData) {
@@ -62,15 +51,7 @@ function SelectItem(data: SelectData) {
 }
 
 function isSelected(value: string | number) {
-    const isSelectedVal = value === props.modelValue;
-    if (isSelectedVal) {
-        SLabel_dataPreview.value = props.data.find(item => item.value === value) || {
-            name: '',
-            value: '',
-        };
-    }
-
-    return isSelectedVal;
+    return value === props.modelValue;
 }
 
 // Plugins
@@ -80,10 +61,6 @@ onClickOutside(SBox, () => {
         SLabel_isOpen.value = false;
     }
 });
-
-// Event
-window.addEventListener('resize', resizeSelectBox);
-onBeforeUnmount(() => window.removeEventListener('resize', resizeSelectBox));
 </script>
 
 <template>
@@ -99,16 +76,22 @@ onBeforeUnmount(() => window.removeEventListener('resize', resizeSelectBox));
                     type="button"
                     @click="clickSelectTextBox"
                     aria-haspopup="listbox"
-                    aria-expanded="true"
+                    :aria-expanded="SLabel_isOpen"
                     aria-labelledby="listbox-label"
-                    id="selectBox-label"
                     class="cursor-pointer dark:border-slate-600 dark:bg-slate-800 relative w-full rounded-md border border-gray-300 bg-white pl-3 pr-10 py-2 text-left focus:outline-none focus:shadow-outline-blue transition ease-in-out duration-150 sm:text-sm sm:leading-5"
                 >
                     <div
                         class="flex items-center space-x-3 text-black dark:text-white"
                         v-if="SLabel_dataPreview.name"
                     >
+                        <img
+                            v-if="isImageIcon(SLabel_dataPreview.icon)"
+                            :src="SLabel_dataPreview.icon"
+                            class="w-4 h-4"
+                            alt=""
+                        />
                         <Icon
+                            v-else
                             :icon="SLabel_dataPreview.icon"
                             class="text-black dark:text-white"
                         />
@@ -123,7 +106,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', resizeSelectBox));
                     >
                         <span
                             class="block truncate"
-                            v-text="`Please select login type`"
+                            v-text="`Please select an option`"
                         />
                     </div>
                     <span
@@ -131,7 +114,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', resizeSelectBox));
                     >
                         <Icon
                             icon="fas fa-chevron-down"
-                            class="text-white"
+                            class="text-gray-400 dark:text-white"
                         />
                     </span>
                 </button>
@@ -146,30 +129,35 @@ onBeforeUnmount(() => window.removeEventListener('resize', resizeSelectBox));
             >
                 <div
                     v-show="SLabel_isOpen"
-                    class="fixed mt-1 rounded-md bg-white shadow-lg"
-                    :style="`width: ${SBox_Size}px;`"
+                    class="absolute top-full left-0 z-20 mt-1 w-full rounded-md bg-white shadow-lg"
                 >
                     <ul
                         tabindex="-1"
                         ref="SBox"
                         role="listbox"
                         aria-labelledby="listbox-label"
-                        aria-activedescendant="listbox-item-3"
                         class="bg-white dark:bg-slate-800 max-h-56 rounded-md py-1 text-base leading-6 shadow-xs overflow-auto focus:outline-none sm:text-sm sm:leading-5"
                     >
                         <li
                             tabindex="0"
                             @click="SelectItem(d)"
-                            id="listbox-item-0"
+                            :id="`listbox-item-${idx}`"
                             role="option"
+                            :aria-selected="isSelected(d.value)"
                             v-for="(d, idx) in data"
                             :key="idx"
                             class="select-none relative py-2 pl-3 pr-9 cursor-pointer text-indigo-600 hover:bg-indigo-600 hover:text-white dark:text-white"
                         >
                             <div class="flex items-center space-x-3">
+                                <img
+                                    v-if="d.icon && isImageIcon(d.icon)"
+                                    :src="d.icon"
+                                    class="w-4 h-4"
+                                    alt=""
+                                />
                                 <Icon
                                     :icon="d.icon"
-                                    v-if="d.icon"
+                                    v-else-if="d.icon"
                                 />
                                 <span
                                     class="block truncate"

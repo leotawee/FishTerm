@@ -12,7 +12,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+// Longest a user may think about a host-key prompt; also bounds a stalled handshake/auth
+// via `inactivity_timeout`. Idle shells survive: keepalives count as activity.
 const PROMPT_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, PartialEq, Eq)]
@@ -150,6 +151,9 @@ pub async fn connect(t: Target, ask: Ask) -> AppResult<Handle<Client>> {
         Credential::Password(_) => None,
     };
     let config = Arc::new(client::Config {
+        // A stalled auth or blackholed host now dies here instead of hanging forever;
+        // post-auth idle shells are safe because keepalives count as activity.
+        inactivity_timeout: Some(PROMPT_TIMEOUT),
         keepalive_interval: Some(Duration::from_secs(30)),
         keepalive_max: 3,
         ..Default::default()
@@ -160,8 +164,10 @@ pub async fn connect(t: Target, ask: Ask) -> AppResult<Handle<Client>> {
         known_hosts: t.known_hosts,
         ask,
     };
+    // WHY: this must cover the interactive host-key prompt, so it cannot be a short 10s;
+    // a dead network is bounded by `inactivity_timeout` above instead.
     let mut handle = tokio::time::timeout(
-        CONNECT_TIMEOUT,
+        PROMPT_TIMEOUT,
         client::connect(config, (t.host.as_str(), t.port), handler),
     )
     .await
@@ -187,6 +193,29 @@ pub enum Cmd {
     Data(Vec<u8>),
     Resize { cols: u32, rows: u32 },
     Close,
+    /// One-shot command on a fresh exec channel; the reply carries its captured output.
+    Exec { command: String, reply: oneshot::Sender<AppResult<String>> },
+}
+
+const EXEC_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Run a command on a separate exec channel of the same connection. Its output is
+/// captured for the caller and never reaches the user's PTY.
+pub async fn run_capture(handle: &Handle<Client>, command: &str) -> AppResult<String> {
+    let mut ch = handle.channel_open_session().await?;
+    ch.exec(true, command.as_bytes().to_vec()).await?;
+    let mut out = Vec::new();
+    let _ = tokio::time::timeout(EXEC_TIMEOUT, async {
+        while let Some(msg) = ch.wait().await {
+            match msg {
+                ChannelMsg::Data { data } => out.extend_from_slice(&data),
+                ChannelMsg::Eof | ChannelMsg::Close => break,
+                _ => {}
+            }
+        }
+    })
+    .await;
+    Ok(String::from_utf8_lossy(&out).into_owned())
 }
 
 /// Open a PTY shell and pump data until either side closes. `out` gets raw terminal bytes.
@@ -207,6 +236,11 @@ pub async fn run_shell(
             cmd = cmds.recv() => match cmd {
                 Some(Cmd::Data(d)) => if let Err(e) = ch.data_bytes(d).await { break Err(e.into()) },
                 Some(Cmd::Resize { cols, rows }) => if let Err(e) = ch.window_change(cols, rows, 0, 0).await { break Err(e.into()) },
+                Some(Cmd::Exec { command, reply }) => {
+                    // Inline await: the shell PTY buffers briefly (channel windowing) while
+                    // the exec runs; Handle is not Clone so it cannot move to another task.
+                    let _ = reply.send(run_capture(&handle, &command).await);
+                }
                 Some(Cmd::Close) | None => break Ok(()),
             },
             msg = ch.wait() => match msg {

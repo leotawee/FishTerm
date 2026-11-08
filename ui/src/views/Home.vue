@@ -11,6 +11,7 @@ import SettingDialog from '../components/dialog/settings.vue';
 // Main
 import {onMounted, ref} from 'vue';
 import {hostsList, errorOf, type HostView} from '../api';
+import {isImageIcon, osIcon} from '../osIcons';
 
 const emit = defineEmits<{connect: [host: HostView]}>();
 
@@ -50,7 +51,6 @@ onMounted(loadHosts);
             <Title
                 class="dark:text-white text-dark"
                 title="SSH list"
-                icon="terminal"
             />
             <Button
                 class="mr-2 mb-2"
@@ -65,6 +65,12 @@ onMounted(loadHosts);
             class="text-red-500 text-sm"
             v-text="loadError"
         />
+        <p
+            v-if="!hosts.length && !loadError"
+            class="text-sm text-gray-400 dark:text-gray-500"
+        >
+            No hosts yet. Click "Add terminal" to create one.
+        </p>
         <div class="space-y-3 overflow-y-auto flex-1 min-h-0 my-7 pr-1 scrollbar">
             <Card
                 v-for="h in hosts"
@@ -72,7 +78,16 @@ onMounted(loadHosts);
             >
                 <template #default>
                     <div class="text-slate-800 dark:text-white text-7xl flex items-center mx-6">
-                        <Icon icon="fas fa-terminal" />
+                        <img
+                            v-if="isImageIcon(osIcon(h.os))"
+                            :src="osIcon(h.os)"
+                            class="w-[72px] h-[72px]"
+                            alt=""
+                        />
+                        <Icon
+                            v-else
+                            :icon="osIcon(h.os)"
+                        />
                     </div>
                     <div class="text-left">
                         <h1
@@ -84,7 +99,10 @@ onMounted(loadHosts);
                             v-text="`${h.username}@${h.host}${h.port !== 22 ? `:${h.port}` : ''}`"
                         />
                         <div class="flex mt-3 pt-0 space-x-2">
-                            <Button @click="emit('connect', h)">
+                            <Button
+                                :class="`!bg-green-600 !hover:bg-green-700 !active:bg-green-700 !dark:bg-green-600 !dark:hover:bg-green-700`"
+                                @click="emit('connect', h)"
+                            >
                                 <Icon icon="fas fa-plug" />
                                 <p>Connect</p>
                             </Button>

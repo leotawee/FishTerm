@@ -3,17 +3,16 @@
   <p align="center">A open-source Terminal remote access</p>
 </center>
 
-> Rust rewrite of [FishTerm](https://github.com/sirilerklab/FishTerm) on Tauri v2.
-> Branch `tauri-rust`. Work in progress. See [ADR-001](./docs/adr/ADR-001-rewrite-in-tauri-rust.md) and the [threat model](./docs/threat-model.md).
+> Rust rewrite of [FishTerm](https://github.com/sirilerklab/FishTerm) on Tauri v2. Branch `tauri-rust`. Work in progress. See [ADR-001](./docs/adr/ADR-001-rewrite-in-tauri-rust.md) and the [threat model](./docs/threat-model.md).
 
 ## Status
 
 | Feature | Upstream (Electron) | This fork (Tauri + Rust) |
-| ------- | ------------------- | ------------------ |
+| --- | --- | --- |
 | Saved hosts | ✅ hex-encoded passwords in JSON | ✅ secrets in OS keychain, `hosts.json` 0600, atomic writes |
-| Remote SSH | ✅ host key **not** verified | ✅ core: `russh`, strict `~/.ssh/known_hosts`, password / key + passphrase (UI in Phase 6) |
+| Remote SSH | ✅ host key **not** verified | ✅ `russh`, strict `~/.ssh/known_hosts`, password / key + passphrase |
 | Cloudflare Access SSH | ✅ | ⏳ Phase 5 |
-| Monitor (CPU, RAM, disk, net) | ✅ | ⏳ Phase 4 |
+| Monitor (CPU, RAM, disk, net) | ✅ | ✅ live via SSH exec (Linux hosts, others show `--`) |
 | SFTP, X11, port forwarding | ❌ | ❌ |
 
 ## Develop
@@ -30,11 +29,10 @@ On Linux, saving passwords needs a Secret Service (GNOME Keyring or KWallet).
 
 ## Credits
 
-This repository is a fork of **[FishTerm](https://github.com/sirilerklab/FishTerm)** by
-[M-307](https://m307.dev), released under the MIT License. The original idea, UI design,
-Cloudflare Access flow and monitor design come from FishTerm.
+This repository is a fork of **[FishTerm](https://github.com/sirilerklab/FishTerm)** by [M-307](https://m307.dev), released under the MIT License. The original idea, UI design, Cloudflare Access flow and monitor design come from FishTerm.
 
 Upstream special thanks:
+
 - [Maythiwat](https://github.com/maythiwat)
 - [nicenathapong](https://github.com/nicenathapong)
 

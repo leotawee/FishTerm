@@ -10,12 +10,14 @@ import {
     sessionWrite,
     sessionResize,
     sessionClose,
+    sessionStats,
     hostkeyDecide,
     errorOf,
     type AppError,
     type HostKeyPrompt,
     type HostView,
     type SessionEvent,
+    type SessionStats,
 } from '../api';
 
 const props = defineProps<{host: HostView; active: boolean}>();
@@ -38,6 +40,33 @@ const pageStep = ref(0);
 const errorText = ref('');
 const prompt = ref<(HostKeyPrompt & {id: string}) | null>(null);
 
+// Footer monitor. First sample has no delta yet, so rates stay `--` for ~3s.
+const stats = ref<SessionStats>({cpu: null, mem: null, disk: null, rx_kbps: null, tx_kbps: null});
+let poller = 0;
+let polling = false;
+const pct = (v: number | null) => (v === null ? '--%' : `${Math.round(v)}%`);
+const net = (v: number | null) => (v === null ? '--' : `${Math.round(v)}K/s`);
+async function refreshStats() {
+    // Skip if the previous exec is still in flight: queued execs would stall the shell loop.
+    if (polling || !sessionId || !props.active) return;
+    polling = true;
+    try {
+        const s = await sessionStats(sessionId).catch(() => null);
+        if (s) stats.value = s;
+    } finally {
+        polling = false;
+    }
+}
+function startStats() {
+    stopStats();
+    poller = window.setInterval(refreshStats, 3000);
+    void refreshStats();
+}
+function stopStats() {
+    if (poller) clearInterval(poller);
+    poller = 0;
+}
+
 let sessionId: string | null = null;
 let unmounting = false;
 
@@ -56,6 +85,7 @@ function onEvent(msg: ArrayBuffer | SessionEvent) {
         prompt.value = {id: msg.prompt_id, ...msg.prompt};
     } else if (msg.type === 'closed') {
         sessionId = null;
+        stopStats();
         if (msg.error) fail(msg.error);
         else if (!unmounting) emit('close');
     }
@@ -103,6 +133,7 @@ onMounted(async () => {
         sent = `${term.cols}x${term.rows}`;
         sessionId = await sessionOpen(props.host.id, term.cols, term.rows, onEvent);
         isShow.value = true;
+        startStats();
         await nextTick();
         refit();
         term.focus();
@@ -120,6 +151,7 @@ watch(
 
 onBeforeUnmount(() => {
     unmounting = true;
+    stopStats();
     observer.disconnect();
     cancelAnimationFrame(frame);
     if (sessionId) sessionClose(sessionId).catch(() => {});
@@ -139,7 +171,7 @@ onBeforeUnmount(() => {
                 v-show="!isShow"
             >
                 <div
-                    class="flex items-center justify-center p-10 bg-white dark:dark:bg-slate-900 rounded-lg max-w-[80%]"
+                    class="flex items-center justify-center p-10 bg-white dark:bg-slate-900 rounded-lg max-w-[80%]"
                 >
                     <div class="space-y-3 text-center">
                         <div
@@ -173,52 +205,61 @@ onBeforeUnmount(() => {
                         <div v-if="pageStep === 0">
                             <h1 class="text-black dark:text-white">Connecting to server ....</h1>
                         </div>
-                        <div v-if="pageStep === 3">
-                            <h1 class="text-black dark:text-white">Authenticate failed</h1>
-                            <h4 class="text-black dark:text-white text-sm"
-                                >Please change password and try again.</h4
-                            >
-                        </div>
-                        <div v-if="pageStep === 4">
-                            <h1 class="text-black dark:text-white">Timeout from server</h1>
-                            <h4 class="text-black dark:text-white text-sm"
-                                >Please check your host is turn on. (or you forgor paid bill?)</h4
-                            >
-                        </div>
-                        <div v-if="pageStep === 5">
-                            <h1 class="text-black dark:text-white">Connection failed</h1>
+                        <template v-if="pageStep >= 3">
+                            <div v-if="pageStep === 3">
+                                <h1 class="text-black dark:text-white">Authentication failed</h1>
+                                <h4 class="text-black dark:text-white text-sm"
+                                    >Please check your username, password or key.</h4
+                                >
+                            </div>
+                            <div v-if="pageStep === 4">
+                                <h1 class="text-black dark:text-white">Timeout from server</h1>
+                                <h4 class="text-black dark:text-white text-sm"
+                                    >Please check that the host is on and reachable.</h4
+                                >
+                            </div>
+                            <div v-if="pageStep === 5">
+                                <h1 class="text-black dark:text-white">Connection failed</h1>
+                            </div>
                             <h4
-                                class="text-black dark:text-white text-sm"
+                                v-if="errorText"
+                                class="text-black dark:text-white text-xs break-words"
                                 v-text="errorText"
                             />
-                        </div>
+                            <Button
+                                class="w-full"
+                                type="button"
+                                @click="emit('close')"
+                            >
+                                Close
+                            </Button>
+                        </template>
                     </div>
                 </div>
             </div>
         </div>
         <div
-            class="py-1 sticky bottom-0 space-x-3 flex bg-gray-200 z-50 w-full dark:dark:bg-slate-800 text-dark dark:text-white justify-end pr-2"
+            class="py-1 sticky bottom-0 space-x-3 flex bg-gray-200 z-50 w-full dark:bg-slate-800 text-dark dark:text-white justify-end pr-2"
         >
-            <!-- Monitor values arrive in Phase 4. -->
             <div class="flex items-center space-x-1">
                 <Icon icon="fas fa-microchip" />
-                <p>--%</p>
+                <p v-text="pct(stats.cpu)" />
             </div>
             <div class="flex items-center space-x-1">
                 <Icon icon="fas fa-memory" />
-                <p>--%</p>
+                <p v-text="pct(stats.mem)" />
             </div>
             <div class="flex items-center space-x-1">
                 <Icon icon="fas fa-hard-drive" />
-                <p>--%</p>
+                <p v-text="pct(stats.disk)" />
             </div>
             <div class="flex items-center space-x-1">
                 <Icon icon="fas fa-upload" />
-                <p>--</p>
+                <p v-text="net(stats.tx_kbps)" />
             </div>
             <div class="flex items-center space-x-1">
                 <Icon icon="fas fa-download" />
-                <p>--</p>
+                <p v-text="net(stats.rx_kbps)" />
             </div>
         </div>
     </div>
@@ -250,7 +291,7 @@ onBeforeUnmount(() => {
                     Trust and connect
                 </Button>
                 <Button
-                    :class="`!bg-red-500`"
+                    :class="`!bg-red-500 !hover:bg-red-600`"
                     class="mr-2 mt-3 mb-2 w-full"
                     type="button"
                     @click="decide(false)"
@@ -263,6 +304,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
+/* WHY: xterm wheel-scrolls via JS anyway; this only hides the native scrollbar (upstream look). */
 .xterm .xterm-viewport {
     overflow-y: hidden !important;
 }

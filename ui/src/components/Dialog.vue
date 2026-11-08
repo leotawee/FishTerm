@@ -1,17 +1,10 @@
 <script lang="ts">
 import {defineComponent, ref, watch} from 'vue';
 
-import useClickOutside from '../plugins/useClickOutside';
-const {onClickOutside} = useClickOutside();
-
 import Button from './Button.vue';
 
 const props = {
     show: {
-        type: Boolean,
-        default: false,
-    },
-    isOutside: {
         type: Boolean,
         default: false,
     },
@@ -24,7 +17,6 @@ export default defineComponent({
     emits: ['close'],
     setup(props, context) {
         const showModal = ref(false);
-        const modal = ref(null);
 
         watch(
             () => props.show,
@@ -38,20 +30,9 @@ export default defineComponent({
             showModal.value = false;
         }
 
-        // Plugin
-        if (props.isOutside) {
-            onClickOutside(modal, () => {
-                if (showModal.value === true) {
-                    closeModal();
-                }
-            });
-        }
-
         return {
             closeModal,
             showModal,
-
-            modal,
         };
     },
 });
@@ -68,8 +49,7 @@ export default defineComponent({
             leave-to-class="opacity-0"
         >
             <div
-                ref="modal-backdrop"
-                class="modal-backdrop fixed bg-black w-full h-full bg-opacity-20 inset-0 max-h-screen"
+                class="modal-backdrop fixed z-[60] bg-black w-full h-full bg-opacity-20 inset-0 max-h-screen"
                 v-show="showModal"
             >
                 <div
@@ -86,7 +66,6 @@ export default defineComponent({
                         <div
                             class="max-h-[calc(100vh-2rem)] overflow-y-auto relative bg-white dark:bg-[#121212] rounded-lg text-left shadow-xl p-8 w-[80%] lg:w-1/2"
                             role="dialog"
-                            ref="modal"
                             aria-modal="true"
                             v-if="showModal"
                             aria-labelledby="modal-headline"
