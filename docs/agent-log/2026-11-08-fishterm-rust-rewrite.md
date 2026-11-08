@@ -109,3 +109,45 @@ Repo hygiene:
 - **Why:** Leo approved (1, 2). Old CI would run `npm ci` against a lockfile that no longer exists. The workaround only existed because of `postcss.config.js`.
 - **Result:** `bun run build` OK after removal. First `git rm` failed: zsh does not word-split `$T`; used `${=T}`.
 - **Lesson:** 📌 GENERAL: in zsh, `$VAR` with spaces stays one word. Use an array or `${=VAR}`. Delete workarounds when their cause goes.
+
+## [--:--] Phase 3 — russh client, strict known_hosts, sessions (closes P0)
+
+- **Action:** `cargo add russh@0.65.1 tokio`. New `src/ssh.rs`; `commands.rs` gains `target_for`, `session_open/write/resize/close`, `hostkey_decide`; `error.rs` gains host-key/auth/timeout variants + `From<russh::Error>`; `lib.rs` wires `~/.ssh/known_hosts`. Test-only keys in `tests/fixtures/` (generated with ssh-keygen, README says so).
+- **Why:** P0: upstream `verify(true)` let any MITM capture the password. Read russh source first (0.65 API: async `Handler::check_server_key`, `known_hosts` module, `ChannelOpenHandle`).
+- **Decision (mini-ADR):** own `host_key_status` instead of `russh::keys::check_known_hosts_path`. Rejected the russh function because it returns "unknown" when the recorded key has a different algorithm, so an attacker offering another key type gets a TOFU prompt instead of a hard fail.
+- **Decision:** terminal bytes go over `tauri::ipc::Channel` as `InvokeResponseBody::Raw` (no JSON/base64, no UTF-8 assumption); control events are JSON on the same channel. Rejected global `emit` events (needs wider capability and per-session event names like upstream).
+- **Result:** `cargo test` 27/27, including real handshakes against an in-process russh server: reject → nothing recorded; accept → learned, then trusted without prompt + echo through PTY shell; changed key → `HostKeyChanged` with no prompt; wrong password → `AuthFailed`; encrypted key passphrase cases. Mutation test: forcing Mismatch → `Ok(true)` makes `changed_key_is_refused_without_prompt` fail; restored. `clippy -D warnings` clean; debug app launches.
+- **Dead end:** test helper `s.data(ch, data.to_vec().into())` → E0283 (generic param); dropped `.into()`.
+- **Lesson:** Security on a library's "check" helper means reading its edge cases; `check_known_hosts_path` is not strict. 📌 GENERAL: mutation-test the one assertion that guards a P0. A test you never saw fail proves nothing.
+- **Security Lesson (attack prevented):** strict host-key check stops a rogue Wi-Fi/ARP-spoofing attacker from posing as the server and collecting the password.
+- **Remaining:** UI for sessions/prompt (Phase 6); `shortcut:` unanswered prompt senders stay in a map until exit; host certificates refused; zeroize still TECH DEBT.
+
+## [--:--] Correction: drop "MEO" branding, keep the FishTerm name
+
+- **Action:** Renamed product/title to `FishTerm`, crate `meo-fishterm` → `fishterm` (lib `fishterm_lib`), identifier + keychain service `dev.meo.fishterm` → `io.github.leotawee.fishterm`, package.json name, README/ADR/threat-model text. `git mv` this log to `2026-11-08-fishterm-rust-rewrite.md`. Branch `meo-rust` → `tauri-rust` (local only).
+- **Why:** Leo: keep the name FishTerm, no MEO. Identifier uses the fork's GitHub namespace instead of a domain nobody here owns. No secrets were ever saved under the old keychain service, so nothing is orphaned.
+- **Result:** `cargo test` 27/27, clippy clean. Earlier entries in this log still say "MEO" (append-only rule: not edited). Commit `2405c3d` message also says "MEO edition" (history not rewritten).
+- **Lesson:** Ask about naming/branding before scaffolding; renames touch identifiers that are costly to change after release (keychain service, app data dir).
+
+## [--:--] Port the original FishTerm UI (Phase 6 pulled forward)
+
+- **Action:** Leo: "UI ตาม fishterm เดิมทั้งหมด". Approved deps: tailwindcss 3.4.19 + postcss (dev), FontAwesome 7.3.1 (svg-core, solid, brands, vue-fontawesome 3.3.3), tauri-plugin-dialog 2.8.4 (Rust + JS). Copied original components verbatim from `main` (Button, Card, Container, Title, Dialog, text, select, useClickOutside), logo + FiraCode fonts. Rewrote data layer of App/Home/settings/SSH/file/info onto Rust commands. Backend: `AppError` now serializes `{code, message}`; `closed` event carries `error`; dialog plugin + `dialog:allow-open` capability.
+- **Why:** Same look as upstream; UI switches screens by error `code` instead of parsing messages.
+- **Deliberate deviations (security / bugs):** saved password is never loaded back into the edit form (upstream loaded plaintext, P1); added passphrase field; key file uses the native picker (Electron `File.path` doesn't exist in Tauri); host-key trust dialog and generic error screen are new; sweetalert2 replaced by the existing Dialog; monitor footer shows `--` until Phase 4; fixed upstream bugs: `fa-soild` icon typo, missing `faTimes` registration, Cancel button `type="submit"`, leaked resize/click listeners, xterm never disposed.
+- **Result:** `vue-tsc` + vite build OK first try (546 kB JS, warning only). `cargo test` 27/27 + new error-shape assertion; clippy clean.
+- **Debug (dead end → fix):** app logged `TypeError: Attempted to assign to readonly property.` at `@xterm_xterm.js:1761 o.toString = s`. Hypotheses: (1) `freezePrototype: true` override mistake, (2) CSP block, (3) Vue/FontAwesome. Stack pointed at xterm, CSP errors look different → tested (1): removed `freezePrototype`, app rebuilt, error gone. Recorded as residual risk in the threat model.
+- **Not verified:** visual check. `screencapture` returned a black image (no Screen Recording permission); did not pursue further.
+- **Lesson:** 📌 GENERAL: freezing built-in prototypes breaks libraries that assign `toString`/`constructor` on plain objects (the "override mistake"); test hardening flags against every dependency at runtime, not only at build.
+
+## [--:--] Debug: UI breaks on window resize
+
+- **Repro:** Leo reported resize UX bugs (no detail). Screen capture of the Tauri window is blocked (no Screen Recording permission), so the same UI ran from the Vite dev server in Chrome with a mocked `window.__TAURI_INTERNALS__` (fake `hosts_list`/`session_open`/`session_resize`), inside an iframe sized like the Tauri window (Chrome window was full-screen and would not shrink). Measured with `getBoundingClientRect`, not by eye.
+- **Fail paths found:**
+  - A. Home list `h-[800px]`: at 816×456 the list ended at 936px, so hosts below the fold were unreachable.
+  - B. Dialog `pt-24 … sm:max-h-screen`: bottom 10px past the viewport at 816×456 (worse below `sm`).
+  - C. Terminal: the first resize after connect always overflowed (34 rows / 646px in a 620px box, hidden behind the footer); later resizes were correct.
+  - D. Tabs fixed at 250px wrapped onto a second row on narrow windows; the newest tab could sit off-screen.
+- **Hypotheses for C (ledger):** (1) `fit()` before layout settles: disproved, a single-step resize + re-fired event gave correct rows. (2) web font: first test (measure right after connect) showed no overflow → looked disproved, but the exact repro loop showed only the first resize overflows with an unchanged 19px row height → xterm measured cells at `open()` with the fallback font; FitAddon used stale metrics once Fira Code loaded. (3) footer height change: footer stayed 32px.
+- **Fix:** `await document.fonts.load('15px "Fira Code"')` before `term.open()`; `ResizeObserver` on the terminal box instead of `window.resize`, one fit per animation frame, `session_resize` only when cols/rows change (was sent twice); Home list `flex-1 min-h-0` inside a full-height Container; Dialog `p-4` + `max-h-[calc(100vh-2rem)]`; tab strip `overflow-x-auto` + `shrink-0`, active tab `scrollIntoView`.
+- **Verified (same harness):** list ends at 420px of 456 and scrolls to the last host; dialog 16→440 of 456; terminal never overflows across 1100×700 → 700×420 → 1300×800 → 640×400 → 1100×700; nav stays 44px with 4 tabs and the newest tab is visible. `vue-tsc` + build OK.
+- **Lesson:** 📌 GENERAL: when a bug only shows "the first time", re-run the exact original sequence; a simplified repro can falsely disprove the right hypothesis. 📌 GENERAL: size xterm.js after its web font has loaded, and observe the container, not the window.

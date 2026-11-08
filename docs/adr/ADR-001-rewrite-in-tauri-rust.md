@@ -1,4 +1,4 @@
-# ADR-001: Rewrite FishTerm as MEO edition on Tauri v2 + Rust
+# ADR-001: Rewrite FishTerm on Tauri v2 + Rust
 
 **Status:** Proposed
 **Date:** 2026-11-08
@@ -6,14 +6,14 @@
 ## Context
 
 Upstream FishTerm (`79fa6a2`) is an Electron 22 + Vue 3 SSH client with Cloudflare Access tunnel support.
-The review (`docs/agent-log/2026-11-08-fishterm-meo-review.md`) found:
+The review (`docs/agent-log/2026-11-08-fishterm-rust-rewrite.md`) found:
 
 - The SSH host key is never verified (`verify(true)`): a MITM can capture the password.
 - Passwords are stored hex-encoded in `~/.fishssh/ssh.json`, and plaintext passwords are sent to the renderer.
 - Electron 22 is EOL, `sandbox: false`, and the preload exposes a raw `shell.openExternal`.
 - `ssh2-streams` is deprecated. The monitor and config layers have data-loss and parsing bugs. There are no tests.
 
-Leo chose: no Electron, Rust core, Tauri v2 UI, on branch `meo-rust` in the fork.
+Leo chose: no Electron, Rust core, Tauri v2 UI, on branch `tauri-rust` in the fork.
 
 Constraints:
 - Must keep the features: saved hosts, password or key auth, SSH over Cloudflare Access (WebSocket), live CPU/RAM/disk/net monitor, multi-tab terminal.
@@ -22,7 +22,7 @@ Constraints:
 
 ## Decision
 
-We will rebuild FishTerm as **MEO FishTerm**. Tauri v2 hosts the UI and a Rust core owns every secret and every socket.
+We will rebuild FishTerm, keeping its name. Tauri v2 hosts the UI and a Rust core owns every secret and every socket.
 
 - **SSH:** `russh` (pure Rust, maintained). Strict host-key checking against `~/.ssh/known_hosts`. Unknown keys need explicit user approval of the SHA256 fingerprint (TOFU). A changed key fails hard.
 - **Secrets:** OS keychain through `keyring` (macOS Keychain, Windows Credential Manager, Secret Service). `hosts.json` holds no secret, only a keychain reference.

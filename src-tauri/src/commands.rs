@@ -3,26 +3,108 @@
 
 use crate::error::{AppError, AppResult};
 use crate::secrets::{SecretStore, host_account};
-use crate::store::{Host, HostInput, HostStore};
+use crate::ssh::{self, Ask, Cmd, Credential, Target};
+use crate::store::{Auth, Host, HostInput, HostStore, Transport};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
-use tauri::State;
+use tauri::ipc::{Channel, InvokeResponseBody};
+use tauri::{AppHandle, Manager, State};
+use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 const MAX_SECRET_LEN: usize = 8192;
+const MAX_WRITE_LEN: usize = 64 * 1024;
+const MAX_TERM_DIM: u32 = 1000;
 
 pub struct AppState {
     store: Mutex<HostStore>,
     secrets: Box<dyn SecretStore>,
     warnings: Mutex<Vec<String>>,
+    known_hosts: PathBuf,
+    sessions: Mutex<HashMap<Uuid, mpsc::UnboundedSender<Cmd>>>,
+    prompts: Mutex<HashMap<Uuid, oneshot::Sender<bool>>>,
 }
 
 impl AppState {
-    pub fn new(store: HostStore, secrets: Box<dyn SecretStore>, warnings: Vec<String>) -> Self {
+    pub fn new(
+        store: HostStore,
+        secrets: Box<dyn SecretStore>,
+        warnings: Vec<String>,
+        known_hosts: PathBuf,
+    ) -> Self {
         Self {
             store: Mutex::new(store),
             secrets,
             warnings: Mutex::new(warnings),
+            known_hosts,
+            sessions: Mutex::new(HashMap::new()),
+            prompts: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Build connection parameters. The secret is read from the keychain here and never
+    /// leaves the Rust core.
+    pub fn target_for(&self, id: Uuid) -> AppResult<Target> {
+        let host = self.store()?.get(&id).cloned().ok_or(AppError::NotFound)?;
+        if host.transport == Transport::CloudflareAccess {
+            return Err(AppError::Invalid(
+                "Cloudflare Access hosts are not supported yet",
+            ));
+        }
+        let secret = if host.has_secret {
+            self.secrets.get(&host_account(&id))?
+        } else {
+            None
+        };
+        let credential = match host.auth {
+            Auth::Password => Credential::Password(
+                secret.ok_or(AppError::Invalid("no password saved for this host"))?,
+            ),
+            Auth::Key { path } => Credential::Key {
+                path,
+                passphrase: secret,
+            },
+        };
+        Ok(Target {
+            host: host.host,
+            port: host.port,
+            username: host.username,
+            credential,
+            known_hosts: self.known_hosts.clone(),
+        })
+    }
+
+    fn send(&self, id: Uuid, cmd: Cmd) -> AppResult<()> {
+        let sessions = self.sessions.lock().map_err(|_| AppError::Internal)?;
+        sessions
+            .get(&id)
+            .ok_or(AppError::NotFound)?
+            .send(cmd)
+            .map_err(|_| AppError::NotFound)
+    }
+
+    pub fn write(&self, id: Uuid, data: String) -> AppResult<()> {
+        if data.len() > MAX_WRITE_LEN {
+            return Err(AppError::Invalid("write too large"));
+        }
+        self.send(id, Cmd::Data(data.into_bytes()))
+    }
+
+    pub fn resize(&self, id: Uuid, cols: u32, rows: u32) -> AppResult<()> {
+        check_dims(cols, rows)?;
+        self.send(id, Cmd::Resize { cols, rows })
+    }
+
+    pub fn decide(&self, prompt_id: Uuid, accept: bool) -> AppResult<()> {
+        let tx = self
+            .prompts
+            .lock()
+            .map_err(|_| AppError::Internal)?
+            .remove(&prompt_id);
+        // A dropped receiver means the prompt already timed out; nothing else to do.
+        let _ = tx.ok_or(AppError::NotFound)?.send(accept);
+        Ok(())
     }
 
     // WHY: the store lock is held across keychain calls so a concurrent delete cannot
@@ -119,11 +201,111 @@ pub fn startup_warnings(state: State<'_, AppState>) -> AppResult<Vec<String>> {
     logged(state.take_warnings())
 }
 
+fn check_dims(cols: u32, rows: u32) -> AppResult<()> {
+    if (1..=MAX_TERM_DIM).contains(&cols) && (1..=MAX_TERM_DIM).contains(&rows) {
+        Ok(())
+    } else {
+        Err(AppError::Invalid("terminal size out of range"))
+    }
+}
+
+fn send_json(events: &Channel, value: serde_json::Value) {
+    let _ = events.send(InvokeResponseBody::Json(value.to_string()));
+}
+
+/// Events on `events`: raw bytes = terminal output; JSON `{type:"hostkey",prompt_id,prompt}`
+/// asks the user (answer with `hostkey_decide`); JSON `{type:"closed",error}` ends the session (`error` is null or `{code,message}`).
+#[tauri::command]
+pub async fn session_open(
+    app: AppHandle,
+    host_id: Uuid,
+    cols: u32,
+    rows: u32,
+    events: Channel,
+) -> AppResult<Uuid> {
+    logged(open_session(app, host_id, cols, rows, events).await)
+}
+
+async fn open_session(
+    app: AppHandle,
+    host_id: Uuid,
+    cols: u32,
+    rows: u32,
+    events: Channel,
+) -> AppResult<Uuid> {
+    check_dims(cols, rows)?;
+    let target = app.state::<AppState>().target_for(host_id)?;
+
+    let (ask_app, ask_events) = (app.clone(), events.clone());
+    let ask: Ask = Box::new(move |prompt| {
+        let (tx, rx) = oneshot::channel();
+        let prompt_id = Uuid::new_v4();
+        // shortcut: an unanswered prompt's sender stays in the map until app exit (a few bytes); prune if that ever matters.
+        if let Ok(mut p) = ask_app.state::<AppState>().prompts.lock() {
+            p.insert(prompt_id, tx);
+        }
+        send_json(
+            &ask_events,
+            serde_json::json!({"type": "hostkey", "prompt_id": prompt_id, "prompt": prompt}),
+        );
+        rx
+    });
+    let handle = ssh::connect(target, ask).await?;
+
+    let (tx, rx) = mpsc::unbounded_channel();
+    let sid = Uuid::new_v4();
+    app.state::<AppState>()
+        .sessions
+        .lock()
+        .map_err(|_| AppError::Internal)?
+        .insert(sid, tx);
+    tracing::info!(session = %sid, %host_id, "session opened");
+
+    tauri::async_runtime::spawn(async move {
+        let data = events.clone();
+        let result = ssh::run_shell(handle, cols, rows, rx, move |bytes| {
+            let _ = data.send(InvokeResponseBody::Raw(bytes));
+        })
+        .await;
+        if let Ok(mut s) = app.state::<AppState>().sessions.lock() {
+            s.remove(&sid);
+        }
+        if let Err(e) = &result {
+            tracing::error!(session = %sid, error = ?e, "session ended with error");
+        }
+        tracing::info!(session = %sid, "session closed");
+        send_json(
+            &events,
+            serde_json::json!({"type": "closed", "error": result.err()}),
+        );
+    });
+    Ok(sid)
+}
+
+#[tauri::command]
+pub fn session_write(state: State<'_, AppState>, id: Uuid, data: String) -> AppResult<()> {
+    logged(state.write(id, data))
+}
+
+#[tauri::command]
+pub fn session_resize(state: State<'_, AppState>, id: Uuid, cols: u32, rows: u32) -> AppResult<()> {
+    logged(state.resize(id, cols, rows))
+}
+
+#[tauri::command]
+pub fn session_close(state: State<'_, AppState>, id: Uuid) -> AppResult<()> {
+    logged(state.send(id, Cmd::Close))
+}
+
+#[tauri::command]
+pub fn hostkey_decide(state: State<'_, AppState>, prompt_id: Uuid, accept: bool) -> AppResult<()> {
+    logged(state.decide(prompt_id, accept))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::secrets::memory::MemoryStore;
-    use crate::store::{Auth, Transport};
     use std::sync::Arc;
 
     struct Shared(Arc<MemoryStore>);
@@ -144,7 +326,12 @@ mod tests {
         let store = HostStore::open(d.path().join("hosts.json")).unwrap();
         let mem = Arc::new(MemoryStore::default());
         (
-            AppState::new(store, Box::new(Shared(mem.clone())), vec![]),
+            AppState::new(
+                store,
+                Box::new(Shared(mem.clone())),
+                vec![],
+                d.path().join("kh"),
+            ),
             mem,
             d,
         )
@@ -227,7 +414,12 @@ mod tests {
     fn warnings_are_returned_once() {
         let d = tempfile::tempdir().unwrap();
         let store = HostStore::open(d.path().join("h.json")).unwrap();
-        let s = AppState::new(store, Box::new(MemoryStore::default()), vec!["w".into()]);
+        let s = AppState::new(
+            store,
+            Box::new(MemoryStore::default()),
+            vec!["w".into()],
+            d.path().join("kh"),
+        );
         assert_eq!(s.take_warnings().unwrap(), vec!["w".to_string()]);
         assert!(s.take_warnings().unwrap().is_empty());
     }
@@ -237,5 +429,86 @@ mod tests {
         let e = AppError::Io(std::io::Error::other("/Users/leo/secret/path denied"));
         let json = serde_json::to_string(&e).unwrap();
         assert!(!json.contains("/Users/leo"));
+        assert_eq!(
+            serde_json::to_value(&AppError::AuthFailed).unwrap(),
+            serde_json::json!({"code": "auth_failed", "message": "authentication failed"})
+        );
+    }
+    #[test]
+    fn target_reads_secret_from_keychain() {
+        let (s, _mem, _d) = setup();
+        let h = s.save(input()).unwrap();
+        assert!(
+            matches!(s.target_for(h.id), Err(AppError::Invalid(m)) if m.contains("no password"))
+        );
+
+        s.set_secret(h.id, "pw".into()).unwrap();
+        let t = s.target_for(h.id).unwrap();
+        assert!(matches!(t.credential, Credential::Password(ref p) if p == "pw"));
+        assert_eq!(
+            (t.host.as_str(), t.port, t.username.as_str()),
+            ("10.0.0.2", 22, "leo")
+        );
+
+        let mut k = input();
+        k.id = Some(h.id);
+        k.auth = Auth::Key {
+            path: std::env::temp_dir().join("k"),
+        };
+        s.save(k).unwrap();
+        let t = s.target_for(h.id).unwrap();
+        assert!(matches!(
+            t.credential,
+            Credential::Key {
+                passphrase: None,
+                ..
+            }
+        ));
+        assert!(matches!(
+            s.target_for(Uuid::new_v4()),
+            Err(AppError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn cloudflare_hosts_are_refused_until_phase_5() {
+        let (s, _mem, _d) = setup();
+        let mut i = input();
+        i.transport = Transport::CloudflareAccess;
+        let h = s.save(i).unwrap();
+        assert!(matches!(s.target_for(h.id), Err(AppError::Invalid(_))));
+    }
+
+    #[test]
+    fn session_inputs_are_bounded() {
+        let (s, _mem, _d) = setup();
+        let id = Uuid::new_v4();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        s.sessions.lock().unwrap().insert(id, tx);
+
+        assert!(matches!(
+            s.write(id, "x".repeat(MAX_WRITE_LEN + 1)),
+            Err(AppError::Invalid(_))
+        ));
+        assert!(matches!(s.resize(id, 0, 24), Err(AppError::Invalid(_))));
+        assert!(matches!(s.resize(id, 80, 1001), Err(AppError::Invalid(_))));
+        assert!(matches!(
+            s.write(Uuid::new_v4(), "x".into()),
+            Err(AppError::NotFound)
+        ));
+
+        s.write(id, "ls\r".into()).unwrap();
+        assert!(matches!(rx.try_recv(), Ok(Cmd::Data(d)) if d == b"ls\r"));
+    }
+
+    #[test]
+    fn hostkey_decision_is_delivered_once() {
+        let (s, _mem, _d) = setup();
+        let pid = Uuid::new_v4();
+        let (tx, mut rx) = oneshot::channel();
+        s.prompts.lock().unwrap().insert(pid, tx);
+        s.decide(pid, true).unwrap();
+        assert_eq!(rx.try_recv(), Ok(true));
+        assert!(matches!(s.decide(pid, true), Err(AppError::NotFound)));
     }
 }

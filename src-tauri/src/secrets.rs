@@ -5,7 +5,6 @@ use crate::error::AppResult;
 /// `get` exists for the Rust core only (SSH auth). No Tauri command exposes it.
 pub trait SecretStore: Send + Sync {
     fn set(&self, account: &str, secret: &str) -> AppResult<()>;
-    #[cfg_attr(not(test), expect(dead_code, reason = "read by SSH auth in Phase 3"))]
     fn get(&self, account: &str) -> AppResult<Option<String>>;
     /// Idempotent: deleting a missing secret is not an error.
     fn delete(&self, account: &str) -> AppResult<()>;

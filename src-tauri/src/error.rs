@@ -20,11 +20,57 @@ pub enum AppError {
     Json(#[from] serde_json::Error),
     #[error("internal error")]
     Internal,
+    #[error(
+        "HOST KEY CHANGED: the server now presents {0}. This can mean a man-in-the-middle attack, \
+         so the connection was refused. If the server was reinstalled, verify the new fingerprint \
+         with its admin, then remove the old line from ~/.ssh/known_hosts."
+    )]
+    HostKeyChanged(String),
+    #[error("host key was not trusted; connection cancelled")]
+    HostKeyRejected,
+    #[error("could not read or update ~/.ssh/known_hosts")]
+    KnownHosts,
+    #[error("authentication failed")]
+    AuthFailed,
+    #[error("connection timed out")]
+    Timeout,
+    #[error("SSH connection failed")]
+    Ssh,
+}
+
+impl From<russh::Error> for AppError {
+    fn from(e: russh::Error) -> Self {
+        tracing::warn!(error = ?e, "ssh error");
+        AppError::Ssh
+    }
+}
+
+impl AppError {
+    /// Stable machine-readable code so the UI never parses messages.
+    fn code(&self) -> &'static str {
+        match self {
+            AppError::Invalid(_) => "invalid",
+            AppError::NotFound => "not_found",
+            AppError::CorruptConfig(_) => "corrupt_config",
+            AppError::Io(_) | AppError::Json(_) | AppError::Internal => "internal",
+            AppError::Keyring(_) => "keychain",
+            AppError::HostKeyChanged(_) => "host_key_changed",
+            AppError::HostKeyRejected => "host_key_rejected",
+            AppError::KnownHosts => "known_hosts",
+            AppError::AuthFailed => "auth_failed",
+            AppError::Timeout => "timeout",
+            AppError::Ssh => "ssh",
+        }
+    }
 }
 
 impl Serialize for AppError {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
+        use serde::ser::SerializeStruct;
+        let mut st = s.serialize_struct("AppError", 2)?;
+        st.serialize_field("code", self.code())?;
+        st.serialize_field("message", &self.to_string())?;
+        st.end()
     }
 }
 

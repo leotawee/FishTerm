@@ -1,6 +1,6 @@
 {
-  "name": "meo-fishterm",
-  "description": "MEO FishTerm: SSH client with Cloudflare Access tunnel support (Tauri v2 + Rust). Fork of sirilerklab/FishTerm.",
+  "name": "fishterm",
+  "description": "FishTerm: SSH client with Cloudflare Access tunnel support (Tauri v2 + Rust). Fork of sirilerklab/FishTerm.",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,12 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "7.3.1",
+    "@fortawesome/free-brands-svg-icons": "7.3.1",
+    "@fortawesome/free-solid-svg-icons": "7.3.1",
+    "@fortawesome/vue-fontawesome": "3.3.3",
     "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-dialog": "2.8.4",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "vue": "3.5.45"
@@ -20,6 +25,8 @@
   "devDependencies": {
     "@tauri-apps/cli": "2.12.4",
     "@vitejs/plugin-vue": "6.0.10",
+    "postcss": "8.5.32",
+    "tailwindcss": "3",
     "typescript": "6.0.3",
     "vite": "8.3.6",
     "vue-tsc": "3.3.14"

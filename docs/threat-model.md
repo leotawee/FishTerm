@@ -1,4 +1,4 @@
-## Threat Model: MEO FishTerm (Tauri v2 + Rust SSH client)
+## Threat Model: FishTerm (Tauri v2 + Rust SSH client)
 
 See ADR-001.
 
@@ -60,14 +60,15 @@ See ADR-001.
 - TOFU on first connect: the user can approve a malicious key on day one. Shown fingerprint + docs on verifying out-of-band.
 - Cloudflare token-transfer protocol is reverse-engineered. Breakage is availability, not confidentiality (the `crypto_box` authenticates the payload).
 - System webview CVEs depend on OS patching.
+- `freezePrototype` is off: xterm.js 6 assigns `toString` on plain objects and throws under a frozen `Object.prototype`. Prototype pollution needs untrusted object merging in the UI, which this app does not do (terminal bytes go to xterm's parser, IPC payloads are typed in Rust).
 
 ### 7. Controls Required (before shipping)
 
-- [ ] known_hosts strict check + fingerprint approval flow, with tests (unknown / match / mismatch)
-- [ ] No IPC command returns a secret (test asserts the response shapes)
-- [ ] Keychain storage for passwords, passphrases and CF tokens
+- [x] known_hosts strict check + fingerprint approval flow, with tests (unknown / match / mismatch / other-algorithm), mutation-tested
+- [x] No IPC command returns a secret (test asserts the response shapes)
+- [ ] Keychain storage for passwords, passphrases (done) and CF tokens (Phase 5)
 - [ ] Login URL validator with tests (https, host match, reject `file:`, `javascript:`, userinfo tricks)
-- [ ] `hosts.json` atomic write + 0600 + backup-on-corrupt, with tests
-- [ ] CSP + minimal capabilities in `tauri.conf.json`
-- [ ] Input validation on every command (port 1–65535, host length ≤ 253, id = UUID)
+- [x] `hosts.json` atomic write + 0600 + backup-on-corrupt, with tests
+- [x] CSP + minimal capabilities in `tauri.conf.json`
+- [x] Input validation on every command (port 1–65535, host length ≤ 253, id = UUID, write ≤ 64 KiB, terminal 1–1000)
 - [ ] No secrets or channel data in logs

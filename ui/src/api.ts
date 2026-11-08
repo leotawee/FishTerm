@@ -1,6 +1,6 @@
-import {invoke} from '@tauri-apps/api/core';
+import {Channel, invoke} from '@tauri-apps/api/core';
 
-// Mirrors `HostView` in src-tauri/src/store.rs. Secrets are never part of this type.
+// Mirrors `Host` in src-tauri/src/store.rs. Secrets are never part of this type.
 export type Transport = 'direct' | 'cloudflare_access';
 export type Auth = {kind: 'password'} | {kind: 'key'; path: string};
 
@@ -16,13 +16,24 @@ export interface HostView {
 }
 
 export interface HostInput {
-    id?: string;
+    id?: string | null;
     name: string;
     host: string;
     port: number;
     username: string;
     transport: Transport;
     auth: Auth;
+}
+
+/** Shape of every rejected command (src-tauri/src/error.rs). */
+export interface AppError {
+    code: string;
+    message: string;
+}
+
+export function errorOf(e: unknown): AppError {
+    if (e && typeof e === 'object' && 'code' in e && 'message' in e) return e as AppError;
+    return {code: 'unknown', message: String(e)};
 }
 
 export const hostsList = () => invoke<HostView[]>('hosts_list');
@@ -32,3 +43,32 @@ export const hostDelete = (id: string) => invoke<void>('host_delete', {id});
 export const hostSetSecret = (id: string, secret: string) =>
     invoke<void>('host_set_secret', {id, secret});
 export const hostClearSecret = (id: string) => invoke<void>('host_clear_secret', {id});
+export const startupWarnings = () => invoke<string[]>('startup_warnings');
+
+export interface HostKeyPrompt {
+    host: string;
+    port: number;
+    algorithm: string;
+    fingerprint: string;
+}
+
+export type SessionEvent =
+    | {type: 'hostkey'; prompt_id: string; prompt: HostKeyPrompt}
+    | {type: 'closed'; error: AppError | null};
+
+/** Raw `ArrayBuffer` messages are terminal output; objects are control events. */
+export function sessionOpen(
+    hostId: string,
+    cols: number,
+    rows: number,
+    onEvent: (msg: ArrayBuffer | SessionEvent) => void,
+) {
+    const events = new Channel<ArrayBuffer | SessionEvent>(onEvent);
+    return invoke<string>('session_open', {hostId, cols, rows, events});
+}
+export const sessionWrite = (id: string, data: string) => invoke<void>('session_write', {id, data});
+export const sessionResize = (id: string, cols: number, rows: number) =>
+    invoke<void>('session_resize', {id, cols, rows});
+export const sessionClose = (id: string) => invoke<void>('session_close', {id});
+export const hostkeyDecide = (promptId: string, accept: boolean) =>
+    invoke<void>('hostkey_decide', {promptId, accept});

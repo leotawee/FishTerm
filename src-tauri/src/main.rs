@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    meo_fishterm_lib::run()
+    fishterm_lib::run()
 }

@@ -1,39 +1,134 @@
-<script setup lang="ts">
-import {onMounted, ref} from 'vue';
-import {hostsList, type HostView} from './api';
+<script lang="ts" setup>
+import {nextTick, onMounted, reactive, ref, watch} from 'vue';
+import {startupWarnings, type HostView} from './api';
 
-const hosts = ref<HostView[]>([]);
-const error = ref('');
+import Home from './views/Home.vue';
+import SSH from './views/SSH.vue';
+
+import Dialog from './components/Dialog.vue';
+import Info from './components/dialog/info.vue';
+
+const tabIndex = ref('home');
+const terminal: Record<string, {title: string; host: HostView}> = reactive({});
+
+const showModal = ref(false);
+const warnings = ref<string[]>([]);
+
+function openTerminal(host: HostView) {
+    const id = crypto.randomUUID();
+    terminal[id] = {title: `${host.username}@${host.host}`, host};
+    tabIndex.value = id;
+}
+
+function removeTerminal(key: string) {
+    delete terminal[key];
+    if (tabIndex.value === key) tabIndex.value = 'home';
+}
 
 onMounted(async () => {
-    try {
-        hosts.value = await hostsList();
-    } catch (e) {
-        error.value = String(e);
-    }
+    warnings.value = await startupWarnings().catch(() => []);
+});
+
+watch(tabIndex, (n: string) => {
+    document.title = terminal[n]?.title || 'Home';
+    nextTick(() => document.querySelector(`[data-tab="${n}"]`)?.scrollIntoView({inline: 'nearest'}));
 });
 </script>
 
 <template>
-    <main class="app">
-        <h1>MEO FishTerm</h1>
-        <p v-if="error" class="error" v-text="error" />
-        <p v-else-if="hosts.length === 0">No saved hosts yet.</p>
-        <ul v-else>
-            <li v-for="h in hosts" :key="h.id">
-                <strong v-text="h.name" /> <span v-text="`${h.username}@${h.host}:${h.port}`" />
-            </li>
-        </ul>
-    </main>
-</template>
+    <div class="flex flex-col h-screen">
+        <nav class="flex mx-auto bg-gray-200 z-50 w-full dark:dark:bg-slate-800 justify-between">
+            <!-- Tabs scroll sideways instead of wrapping onto a second row on narrow windows. -->
+            <div class="flex min-w-0 overflow-x-auto">
+                <button
+                    class="ml-2 space-x-8 w-[250px] shrink-0 mt-1 text-left"
+                    data-tab="home"
+                    @click="tabIndex = 'home'"
+                >
+                    <div
+                        :class="`bg-white py-1 ${
+                            tabIndex === 'home' ? 'pt-2 mt-1' : 'mt-2'
+                        } rounded-t-lg border-r-3 hover:bg-slate-100 dark:bg-white dark:hover:bg-slate-300`"
+                    >
+                        <p class="ml-2 inline-flex items-center"> Home </p>
+                    </div>
+                </button>
 
-<style>
-:root {
-    color-scheme: dark;
-    font-family: system-ui, sans-serif;
-    background: #0f172a;
-    color: #e2e8f0;
-}
-.app { padding: 16px; }
-.error { color: #f87171; }
-</style>
+                <button
+                    class="ml-2 space-x-8 w-[250px] shrink-0 text-left"
+                    v-for="key in Object.keys(terminal)"
+                    :key="key"
+                    :data-tab="key"
+                    @click="tabIndex = key"
+                >
+                    <div
+                        :class="`bg-white hover:bg-slate-100 ${
+                            tabIndex === key ? 'pt-2 mt-1' : 'mt-2'
+                        } py-1 rounded-t-lg border-r-3 dark:bg-white dark:hover:bg-slate-300`"
+                    >
+                        <div class="flex justify-between">
+                            <p class="ml-2 inline-flex items-center truncate">
+                                {{ terminal[key]?.title }}
+                            </p>
+                            <button
+                                class="flex items-center rounded-full hover:bg-gray-200 px-2 mr-3 py-1"
+                                @click.stop="removeTerminal(key)"
+                            >
+                                <Icon icon="fas fa-close" />
+                            </button>
+                        </div>
+                    </div>
+                </button>
+            </div>
+            <div class="flex items-center shrink-0 ml-3 mr-5">
+                <button @click="showModal = true">
+                    <Icon
+                        icon="fas fa-info-circle"
+                        class="text-black dark:text-white"
+                    />
+                </button>
+            </div>
+        </nav>
+
+        <main class="dark:bg-[#121212] flex-1 min-h-0">
+            <div
+                :hidden="tabIndex !== 'home'"
+                class="h-full"
+            >
+                <Home @connect="openTerminal" />
+            </div>
+            <div
+                v-for="(tab, key) in terminal"
+                :hidden="tabIndex !== key"
+                :key="key"
+                class="h-full"
+            >
+                <SSH
+                    :host="tab.host"
+                    :active="tabIndex === key"
+                    @close="removeTerminal(key)"
+                />
+            </div>
+        </main>
+    </div>
+    <Dialog
+        :show="showModal"
+        @close="showModal = false"
+    >
+        <Info />
+    </Dialog>
+    <Dialog
+        :show="warnings.length > 0"
+        @close="warnings = []"
+    >
+        <div class="space-y-2 text-black dark:text-white">
+            <h1 class="text-xl font-bold">Warning</h1>
+            <p
+                v-for="(w, i) in warnings"
+                :key="i"
+                class="text-sm"
+                v-text="w"
+            />
+        </div>
+    </Dialog>
+</template>
