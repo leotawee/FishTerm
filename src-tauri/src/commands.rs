@@ -1,6 +1,7 @@
 //! Tauri IPC surface. Thin wrappers over `AppState` methods so the logic is testable
 //! without a Tauri runtime. No command returns a secret (threat model §7).
 
+use crate::cfaccess;
 use crate::error::{AppError, AppResult};
 use crate::secrets::{SecretStore, host_account};
 use crate::ssh::{self, Ask, Cmd, Credential, Target};
@@ -20,7 +21,8 @@ const MAX_WRITE_LEN: usize = 64 * 1024;
 const MAX_TERM_DIM: u32 = 1000;
 const STATS_WAIT: Duration = Duration::from_secs(6);
 // Linux only; missing /proc entries simply leave the matching footer field as `--`.
-const STATS_CMD: &str = "cat /proc/stat /proc/meminfo /proc/net/dev 2>/dev/null; df -k / 2>/dev/null";
+const STATS_CMD: &str =
+    "cat /proc/stat /proc/meminfo /proc/net/dev 2>/dev/null; df -k / 2>/dev/null";
 
 pub struct AppState {
     store: Mutex<HostStore>,
@@ -51,21 +53,29 @@ impl AppState {
         }
     }
 
-    /// Build connection parameters. The secret is read from the keychain here and never
-    /// leaves the Rust core.
+    /// Build connection parameters for a direct host. The secret is read from the
+    /// keychain here and never leaves the Rust core.
     pub fn target_for(&self, id: Uuid) -> AppResult<Target> {
         let host = self.store()?.get(&id).cloned().ok_or(AppError::NotFound)?;
-        if host.transport == Transport::CloudflareAccess {
-            return Err(AppError::Invalid(
-                "Cloudflare Access hosts are not supported yet",
-            ));
-        }
+        Ok(Target {
+            host: host.host,
+            port: host.port,
+            username: host.username,
+            credential: self.credential_for(id)?,
+            known_hosts: self.known_hosts.clone(),
+        })
+    }
+
+    /// Read the host's SSH credential from the keychain. Shared by every
+    /// transport: behind Cloudflare Access the SSH auth to sshd is unchanged.
+    pub fn credential_for(&self, id: Uuid) -> AppResult<Credential> {
+        let host = self.store()?.get(&id).cloned().ok_or(AppError::NotFound)?;
         let secret = if host.has_secret {
             self.secrets.get(&host_account(&id))?
         } else {
             None
         };
-        let credential = match host.auth {
+        Ok(match host.auth {
             Auth::Password => Credential::Password(
                 secret.ok_or(AppError::Invalid("no password saved for this host"))?,
             ),
@@ -73,13 +83,6 @@ impl AppState {
                 path,
                 passphrase: secret,
             },
-        };
-        Ok(Target {
-            host: host.host,
-            port: host.port,
-            username: host.username,
-            credential,
-            known_hosts: self.known_hosts.clone(),
         })
     }
 
@@ -108,10 +111,13 @@ impl AppState {
     /// the previous sample. First call per session yields rates as `None`.
     pub async fn stats(&self, id: Uuid) -> AppResult<Stats> {
         let (tx, rx) = oneshot::channel();
-        self.send(id, Cmd::Exec {
-            command: STATS_CMD.into(),
-            reply: tx,
-        })?;
+        self.send(
+            id,
+            Cmd::Exec {
+                command: STATS_CMD.into(),
+                reply: tx,
+            },
+        )?;
         let text = match tokio::time::timeout(STATS_WAIT, rx).await {
             Ok(Ok(text)) => text?,
             Ok(Err(_)) => return Err(AppError::NotFound), // shell loop already gone
@@ -123,7 +129,10 @@ impl AppState {
             .lock()
             .map_err(|_| AppError::Internal)?
             .insert(id, (now, Instant::now()));
-        let secs = prev.as_ref().map(|(_, at)| at.elapsed().as_secs_f64()).unwrap_or(0.0);
+        let secs = prev
+            .as_ref()
+            .map(|(_, at)| at.elapsed().as_secs_f64())
+            .unwrap_or(0.0);
         Ok(stats::diff(prev.map(|(s, _)| s), now, secs))
     }
 
@@ -265,7 +274,13 @@ async fn open_session(
     events: Channel,
 ) -> AppResult<Uuid> {
     check_dims(cols, rows)?;
-    let target = app.state::<AppState>().target_for(host_id)?;
+    let state = app.state::<AppState>();
+    let host = state
+        .store()?
+        .get(&host_id)
+        .cloned()
+        .ok_or(AppError::NotFound)?;
+    let credential = state.credential_for(host_id)?;
 
     let (ask_app, ask_events) = (app.clone(), events.clone());
     let ask: Ask = Box::new(move |prompt| {
@@ -281,7 +296,45 @@ async fn open_session(
         );
         rx
     });
-    let handle = ssh::connect(target, ask).await?;
+
+    let handle = match host.transport {
+        Transport::Direct => ssh::connect(state.target_for(host_id)?, ask).await?,
+        Transport::CloudflareAccess => {
+            // ADR-001: Rust validates the login URL and opens the browser itself;
+            // the webview only receives progress statuses on the event channel.
+            let opener_app = app.clone();
+            let open_browser =
+                move |url: String| {
+                    use tauri_plugin_opener::OpenerExt;
+                    opener_app.opener().open_url(url, None::<&str>).map_err(|e| {
+                    tracing::warn!(error = ?e, "could not open the sign-in URL in a browser");
+                    AppError::CfLogin
+                })
+                };
+            let mut on_status = |status: &str, attempt: u8| {
+                send_json(
+                    &events,
+                    serde_json::json!({"type": "cf-login", "status": status, "attempt": attempt}),
+                );
+            };
+            let cf = cfaccess::open_session_stream(
+                &host.host,
+                state.secrets.as_ref(),
+                &open_browser,
+                &mut on_status,
+            )
+            .await?;
+            // known_hosts identity is the canonical Access domain, not an edge IP.
+            let target = Target {
+                host: cf.domain,
+                port: host.port,
+                username: host.username.clone(),
+                credential,
+                known_hosts: state.known_hosts.clone(),
+            };
+            ssh::connect_on(target, ask, cf.pipe).await?
+        }
+    };
 
     let (tx, rx) = mpsc::unbounded_channel();
     let sid = Uuid::new_v4();
@@ -524,12 +577,20 @@ mod tests {
     }
 
     #[test]
-    fn cloudflare_hosts_are_refused_until_phase_5() {
+    fn cloudflare_hosts_build_target_like_direct() {
+        // Phase 5: CF hosts resolve credentials identically; the tunnel replaces
+        // only the TCP stream, and known_hosts keys on the Access domain.
         let (s, _mem, _d) = setup();
         let mut i = input();
         i.transport = Transport::CloudflareAccess;
         let h = s.save(i).unwrap();
-        assert!(matches!(s.target_for(h.id), Err(AppError::Invalid(_))));
+        assert!(matches!(
+            s.target_for(h.id),
+            Err(AppError::Invalid(m)) if m.contains("no password")
+        ));
+        s.set_secret(h.id, "pw".into()).unwrap();
+        let t = s.target_for(h.id).unwrap();
+        assert!(matches!(t.credential, Credential::Password(ref p) if p == "pw"));
     }
 
     #[test]

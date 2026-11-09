@@ -40,6 +40,18 @@ const pageStep = ref(0);
 const errorText = ref('');
 const prompt = ref<(HostKeyPrompt & {id: string}) | null>(null);
 
+// Cloudflare Access sign-in progress, shown under "Connecting to server ....".
+const CF_STATUS_TEXT: Record<string, string> = {
+    probe: 'Looking for the Cloudflare Access app...',
+    cache: 'Using the saved Cloudflare token...',
+    browser: 'A browser window opened — sign in to Cloudflare Access',
+    waiting: 'Waiting for your Cloudflare sign-in',
+    token: 'Received the Cloudflare token...',
+    connecting: 'Opening the Cloudflare tunnel...',
+};
+const cfStatus = ref('');
+const cfAttempt = ref(0);
+
 // Footer monitor. First sample has no delta yet, so rates stay `--` for ~3s.
 const stats = ref<SessionStats>({cpu: null, mem: null, disk: null, rx_kbps: null, tx_kbps: null});
 let poller = 0;
@@ -74,6 +86,7 @@ function fail(err: AppError) {
     isShow.value = false;
     isLoading.value = false;
     prompt.value = null;
+    cfStatus.value = '';
     pageStep.value = err.code === 'auth_failed' ? 3 : err.code === 'timeout' ? 4 : 5;
     errorText.value = err.message;
 }
@@ -83,6 +96,9 @@ function onEvent(msg: ArrayBuffer | SessionEvent) {
         term.write(new Uint8Array(msg));
     } else if (msg.type === 'hostkey') {
         prompt.value = {id: msg.prompt_id, ...msg.prompt};
+    } else if (msg.type === 'cf-login') {
+        cfStatus.value = msg.status;
+        cfAttempt.value = msg.attempt;
     } else if (msg.type === 'closed') {
         sessionId = null;
         stopStats();
@@ -132,6 +148,7 @@ onMounted(async () => {
     try {
         sent = `${term.cols}x${term.rows}`;
         sessionId = await sessionOpen(props.host.id, term.cols, term.rows, onEvent);
+        cfStatus.value = '';
         isShow.value = true;
         startStats();
         await nextTick();
@@ -204,6 +221,15 @@ onBeforeUnmount(() => {
                         </div>
                         <div v-if="pageStep === 0">
                             <h1 class="text-black dark:text-white">Connecting to server ....</h1>
+                            <h4
+                                v-if="cfStatus"
+                                class="text-black dark:text-white text-sm mt-2"
+                            >
+                                {{ CF_STATUS_TEXT[cfStatus] || cfStatus
+                                }}<template v-if="cfStatus === 'waiting'">
+                                    ({{ cfAttempt }}/10)</template
+                                >
+                            </h4>
                         </div>
                         <template v-if="pageStep >= 3">
                             <div v-if="pageStep === 3">

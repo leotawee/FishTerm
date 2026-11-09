@@ -36,6 +36,14 @@ pub enum AppError {
     Timeout,
     #[error("SSH connection failed")]
     Ssh,
+    #[error("no Cloudflare Access application answered on that host; check the tunnel and the URL")]
+    CfProbe,
+    #[error("Cloudflare Access sign-in was not completed in time; try connecting again")]
+    CfLogin,
+    #[error("could not fetch the Cloudflare Access token from the transfer service")]
+    CfTransfer,
+    #[error("could not reach the server through Cloudflare Tunnel")]
+    CfWs,
 }
 
 impl From<russh::Error> for AppError {
@@ -60,6 +68,10 @@ impl AppError {
             AppError::AuthFailed => "auth_failed",
             AppError::Timeout => "timeout",
             AppError::Ssh => "ssh",
+            AppError::CfProbe => "cf_probe",
+            AppError::CfLogin => "cf_login",
+            AppError::CfTransfer => "cf_transfer",
+            AppError::CfWs => "cf_ws",
         }
     }
 }

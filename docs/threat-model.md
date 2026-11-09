@@ -46,7 +46,7 @@ See ADR-001.
 | Webview reads stored passwords | I | Low | High | Secrets are write-only over IPC. No command returns a secret. Keychain access only in Rust. |
 | Another local user reads secrets/tokens | I | Med | High | Secrets and CF tokens live in the OS keychain. `hosts.json` is written with mode 0600 and holds no secrets. |
 | Malicious host header writes files outside config dir | T | Low | Med | CF tokens go to the keychain, keyed by a validated hostname. No path built from server data. |
-| Server-controlled login URL opens `file://`/custom scheme | E | Med | Med | Rust parses the URL: https only, host == configured app domain (or a subdomain). Rust opens it via the opener plugin; the webview has no open-URL capability. |
+| Server-controlled login URL opens `file://`/custom scheme | E | Med | Med | Implemented (`cfaccess::validate_login_url`, tested): https only, host must equal the Access app domain, exact `/cdn-cgi/access/cli` path, default port, no fragment/userinfo. Rust opens it via the opener plugin; the webview has no open-URL capability. |
 | XSS in UI pivots to Rust commands | E | Low | High | Strict CSP (`default-src 'self'`, no `unsafe-eval`). Capabilities limit the webview to app commands. Every command validates its input (lengths, ids, port range). |
 | Terminal escape abuse (OSC 52 clipboard write, link spoof) | T | Med | Low | xterm.js defaults: no OSC 52 clipboard handler, and link activation goes through the same validated opener (https only, confirm dialog). |
 | Corrupt/hostile `hosts.json` crashes app or wipes data | D/T | Low | Med | Typed serde parse. On error: back up to `hosts.json.bak-<ts>`, surface the error, never overwrite silently. Atomic write (tmp + rename). |
@@ -58,7 +58,7 @@ See ADR-001.
 
 - Headless Linux without Secret Service: `keyring` fails. The app refuses to save the secret and asks each connect. No plaintext fallback.
 - TOFU on first connect: the user can approve a malicious key on day one. Shown fingerprint + docs on verifying out-of-band.
-- Cloudflare token-transfer protocol is reverse-engineered. Breakage is availability, not confidentiality (the `crypto_box` authenticates the payload).
+- Cloudflare token-transfer protocol is ported from upstream behaviour and `cloudflared`. Breakage is availability, not confidentiality (the `crypto_box` authenticates the payload). The login page the user sees is served by Cloudflare itself; the app only opens an https URL on the app's own domain.
 - System webview CVEs depend on OS patching.
 - `freezePrototype` is off: xterm.js 6 assigns `toString` on plain objects and throws under a frozen `Object.prototype`. Prototype pollution needs untrusted object merging in the UI, which this app does not do (terminal bytes go to xterm's parser, IPC payloads are typed in Rust).
 
@@ -66,8 +66,9 @@ See ADR-001.
 
 - [x] known_hosts strict check + fingerprint approval flow, with tests (unknown / match / mismatch / other-algorithm), mutation-tested
 - [x] No IPC command returns a secret (test asserts the response shapes)
-- [ ] Keychain storage for passwords, passphrases (done) and CF tokens (Phase 5)
-- [ ] Login URL validator with tests (https, host match, reject `file:`, `javascript:`, userinfo tricks)
+- [x] Keychain storage for passwords, passphrases (done) and Cloudflare Access tokens (`cf-access:<domain>:<kid>`, write-only over IPC)
+- [x] Login URL validator with tests (https, host == app domain, no userinfo, `/cdn-cgi/access/cli` path only, rejects `file:`, `javascript:`, wrong host/path/port/fragment)
+- [x] SSH host-key check enforced over the tunnel: the WSS pipe feeds `russh::connect_stream`, so TOFU/mismatch applies to the Access domain (e2e test runs a handshake through a ws:// bridge)
 - [x] `hosts.json` atomic write + 0600 + backup-on-corrupt, with tests
 - [x] CSP + minimal capabilities in `tauri.conf.json`
 - [x] Input validation on every command (port 1–65535, host length ≤ 253, id = UUID, write ≤ 64 KiB, terminal 1–1000)

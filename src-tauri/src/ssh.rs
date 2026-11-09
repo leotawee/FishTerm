@@ -57,6 +57,7 @@ pub struct HostKeyPrompt {
 /// Asks the user; the receiver yields `true` to trust the key.
 pub type Ask = Box<dyn Fn(HostKeyPrompt) -> oneshot::Receiver<bool> + Send + Sync>;
 
+#[derive(Clone)]
 pub enum Credential {
     Password(String),
     Key {
@@ -65,6 +66,7 @@ pub enum Credential {
     },
 }
 
+#[derive(Clone)]
 pub struct Target {
     pub host: String,
     pub port: u16,
@@ -161,24 +163,68 @@ pub async fn connect(t: Target, ask: Ask) -> AppResult<Handle<Client>> {
     let handler = Client {
         host: t.host.clone(),
         port: t.port,
-        known_hosts: t.known_hosts,
+        known_hosts: t.known_hosts.clone(),
         ask,
     };
     // WHY: this must cover the interactive host-key prompt, so it cannot be a short 10s;
     // a dead network is bounded by `inactivity_timeout` above instead.
-    let mut handle = tokio::time::timeout(
+    let stream = tokio::time::timeout(
         PROMPT_TIMEOUT,
-        client::connect(config, (t.host.as_str(), t.port), handler),
+        tokio::net::TcpStream::connect((t.host.as_str(), t.port)),
     )
     .await
-    .map_err(|_| AppError::Timeout)??;
+    .map_err(|_| AppError::Timeout)?
+    .map_err(AppError::from)?;
+    run_handshake(config, stream, handler, t, key).await
+}
 
-    let res = match (t.credential, key) {
-        (Credential::Password(pw), _) => handle.authenticate_password(t.username, pw).await?,
+/// Same handshake and auth over an already-open stream (Cloudflare tunnel).
+/// Host-key identity is still `t.host`/`t.port` in known_hosts.
+pub async fn connect_on<R>(t: Target, ask: Ask, stream: R) -> AppResult<Handle<Client>>
+where
+    R: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    // Fail before touching the network if the key is unusable.
+    let key = match &t.credential {
+        Credential::Key { path, passphrase } => {
+            Some(Arc::new(load_key(path, passphrase.as_deref())?))
+        }
+        Credential::Password(_) => None,
+    };
+    let config = Arc::new(client::Config {
+        inactivity_timeout: Some(PROMPT_TIMEOUT),
+        keepalive_interval: Some(Duration::from_secs(30)),
+        keepalive_max: 3,
+        ..Default::default()
+    });
+    let handler = Client {
+        host: t.host.clone(),
+        port: t.port,
+        known_hosts: t.known_hosts.clone(),
+        ask,
+    };
+    run_handshake(config, stream, handler, t, key).await
+}
+
+/// Shared tail of `connect`/`connect_on`: handshake, then authenticate.
+async fn run_handshake<R>(
+    config: Arc<client::Config>,
+    stream: R,
+    handler: Client,
+    t: Target,
+    key: Option<Arc<PrivateKey>>,
+) -> AppResult<Handle<Client>>
+where
+    R: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let mut handle = client::connect_stream(config, stream, handler).await?;
+
+    let res = match (&t.credential, key) {
+        (Credential::Password(pw), _) => handle.authenticate_password(&t.username, pw).await?,
         (Credential::Key { .. }, Some(key)) => {
             let hash = handle.best_supported_rsa_hash().await?.flatten();
             handle
-                .authenticate_publickey(t.username, PrivateKeyWithHashAlg::new(key, hash))
+                .authenticate_publickey(&t.username, PrivateKeyWithHashAlg::new(key, hash))
                 .await?
         }
         (Credential::Key { .. }, None) => unreachable!("key loaded above"),
@@ -191,10 +237,16 @@ pub async fn connect(t: Target, ask: Ask) -> AppResult<Handle<Client>> {
 
 pub enum Cmd {
     Data(Vec<u8>),
-    Resize { cols: u32, rows: u32 },
+    Resize {
+        cols: u32,
+        rows: u32,
+    },
     Close,
     /// One-shot command on a fresh exec channel; the reply carries its captured output.
-    Exec { command: String, reply: oneshot::Sender<AppResult<String>> },
+    Exec {
+        command: String,
+        reply: oneshot::Sender<AppResult<String>>,
+    },
 }
 
 const EXEC_TIMEOUT: Duration = Duration::from_secs(5);

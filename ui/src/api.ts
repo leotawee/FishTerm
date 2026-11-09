@@ -83,6 +83,8 @@ export interface HostKeyPrompt {
 
 export type SessionEvent =
     | {type: 'hostkey'; prompt_id: string; prompt: HostKeyPrompt}
+    /** Cloudflare Access progress before the session id exists. */
+    | {type: 'cf-login'; status: 'probe' | 'cache' | 'browser' | 'waiting' | 'token' | 'connecting'; attempt: number}
     | {type: 'closed'; error: AppError | null};
 
 /** Raw `ArrayBuffer` messages are terminal output; objects are control events. */

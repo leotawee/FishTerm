@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | Saved hosts | ✅ hex-encoded passwords in JSON | ✅ secrets in OS keychain, `hosts.json` 0600, atomic writes |
 | Remote SSH | ✅ host key **not** verified | ✅ `russh`, strict `~/.ssh/known_hosts`, password / key + passphrase |
-| Cloudflare Access SSH | ✅ | ⏳ Phase 5 |
+| Cloudflare Access SSH | ✅ | ✅ token-transfer login in Rust, token in keychain, SSH over the WSS tunnel with strict host-key check |
 | Monitor (CPU, RAM, disk, net) | ✅ | ✅ live via SSH exec (Linux hosts, others show `--`) |
 | SFTP, X11, port forwarding | ❌ | ❌ |
 

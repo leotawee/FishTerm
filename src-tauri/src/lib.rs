@@ -1,5 +1,6 @@
 //! FishTerm core. See docs/adr/ADR-001-rewrite-in-tauri-rust.md.
 
+mod cfaccess;
 mod commands;
 mod error;
 mod secrets;
@@ -32,6 +33,9 @@ pub fn run() {
         }))
         // Only `open` is granted (capabilities/default.json): picks a key file path.
         .plugin(tauri_plugin_dialog::init())
+        // Rust-side use only (`OpenerExt`): opens the validated Cloudflare Access
+        // login URL. No capability entry: the webview has no open-URL primitive.
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let path = app.path().app_config_dir()?.join("hosts.json");
             let (store, warnings) = HostStore::open_or_recover(path)?;
