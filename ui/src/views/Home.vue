@@ -49,7 +49,7 @@ onMounted(loadHosts);
     <Container class="flex flex-col h-full">
         <div class="flex justify-between">
             <Title
-                class="dark:text-white text-dark"
+                class="text-black dark:text-white"
                 title="SSH list"
             />
             <Button
@@ -60,16 +60,24 @@ onMounted(loadHosts);
                 Add terminal
             </Button>
         </div>
-        <p
+        <div
             v-if="loadError"
-            class="text-red-500 text-sm"
-            v-text="loadError"
-        />
+            class="text-xs text-red-600 dark:text-red-400"
+        >
+            <p v-text="loadError" />
+            <Button
+                type="button"
+                class="mt-2"
+                @click="loadHosts"
+            >
+                Retry
+            </Button>
+        </div>
         <p
             v-if="!hosts.length && !loadError"
-            class="text-sm text-gray-400 dark:text-gray-500"
+            class="text-sm text-slate-500 dark:text-slate-400"
         >
-            No hosts yet. Click "Add terminal" to create one.
+            No saved hosts yet — click Add to create your first connection.
         </p>
         <div class="space-y-3 overflow-y-auto flex-1 min-h-0 my-7 pr-1 scrollbar">
             <Card
@@ -89,24 +97,31 @@ onMounted(loadHosts);
                             :icon="osIcon(h.os)"
                         />
                     </div>
-                    <div class="text-left">
+                    <div class="text-left min-w-0">
                         <h1
-                            class="text-lg font-bold dark:text-white text-dark"
+                            class="text-lg font-bold text-black dark:text-white break-words"
                             v-text="h.name"
                         />
                         <h2
-                            class="text-purple-500"
+                            class="text-indigo-500 min-w-0 truncate"
                             v-text="`${h.username}@${h.host}${h.port !== 22 ? `:${h.port}` : ''}`"
                         />
+                        <span
+                            class="inline-flex mt-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                            :class="h.transport === 'cloudflare_access'
+                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400'
+                                : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+                            v-text="h.transport === 'cloudflare_access' ? 'Cloudflare' : 'SSH'"
+                        />
                         <div class="flex mt-3 pt-0 space-x-2">
-                            <Button
-                                :class="`!bg-green-600 !hover:bg-green-700 !active:bg-green-700 !dark:bg-green-600 !dark:hover:bg-green-700`"
-                                @click="emit('connect', h)"
-                            >
+                            <Button @click="emit('connect', h)">
                                 <Icon icon="fas fa-plug" />
                                 <p>Connect</p>
                             </Button>
-                            <Button @click="openSettings(h)">
+                            <Button
+                                variant="ghost"
+                                @click="openSettings(h)"
+                            >
                                 <Icon icon="fas fa-cogs" />
                                 <p>Settings</p>
                             </Button>
@@ -118,6 +133,7 @@ onMounted(loadHosts);
     </Container>
     <DialogVue
         :show="showModal"
+        label="Host settings"
         @close="showModal = false"
     >
         <SettingDialog

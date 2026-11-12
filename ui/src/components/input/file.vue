@@ -17,26 +17,27 @@ async function pick() {
 watch(
     () => props.path,
     (n: string) => {
-        previewFile.value = n || 'Please upload file';
+        previewFile.value = n || 'Choose a key file';
     },
 );
 
 onMounted(() => {
-    previewFile.value = props.path || 'Please upload file';
+    previewFile.value = props.path || 'Choose a key file';
 });
 </script>
 
 <template>
     <div class="col-span-12 mb-2">
         <label
-            class="block text-md font-medium text-gray-700 dark:text-white mb-2"
+            class="block text-base font-medium text-gray-700 dark:text-white mb-2"
             v-text="props.name"
         />
         <div class="flex items-center justify-center w-full">
             <button
                 type="button"
                 @click="pick"
-                class="flex flex-col w-full h-32 border-4 border-blue-200 dark:border-slate-500 dark:hover:bg-slate-900 border-dashed hover:bg-gray-100 hover:border-gray-300"
+                aria-label="Choose key file"
+                class="group flex flex-col w-full h-32 border-4 border-blue-200 dark:border-slate-500 dark:hover:bg-slate-900 border-dashed hover:bg-gray-100 hover:border-gray-300"
             >
                 <div class="flex flex-col items-center justify-center pt-7 w-full">
                     <p

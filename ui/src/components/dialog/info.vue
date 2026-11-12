@@ -5,7 +5,7 @@ const version = __APP_VERSION__;
 </script>
 
 <template>
-    <div class="text-center dark:text-white text-dark space-y-3">
+    <div class="text-center text-black dark:text-white space-y-3">
         <div
             id="logo"
             class="space-y-3"
@@ -13,6 +13,7 @@ const version = __APP_VERSION__;
             <img
                 class="mx-auto rounded-2xl w-[256px] h-[256px]"
                 :src="iconUrl"
+                alt="FishTerm logo"
             />
 
             <div class="space-y-2">

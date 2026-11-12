@@ -14,11 +14,21 @@
     }
 
     .scrollbar::-webkit-scrollbar-thumb {
-        background: #ddd6fe;
+        background: #cbd5e1;
         border-radius: 100vh;
     }
 
     .scrollbar::-webkit-scrollbar-thumb:hover {
-        background: #c4b5fd;
+        background: #94a3b8;
+    }
+
+    @media (prefers-color-scheme: dark) {
+        .scrollbar::-webkit-scrollbar-thumb {
+            background: #475569;
+        }
+
+        .scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
     }
 }

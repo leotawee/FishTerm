@@ -27,12 +27,17 @@ const emit = defineEmits(['closePage', 'changed']);
 // Password (type 0) or key file path (type 1). Saved passwords are never loaded back.
 const previewPasswordData = ref('');
 const previousPasswordType = ref(0);
-const previousPasswordData = ref('');
+// Entered secret kept per login type, so switching type never loses typed text and a
+// saved key path never leaks into the password field.
+const secretSlots = reactive<Record<number, string>>({0: '', 1: ''});
+// Login type whose value currently lives in previewPasswordData.
+const activeSecretType = ref(0);
 const passphrase = ref('');
 
 const previewConnectionData = ref('');
 const previousConnectionType = ref(0);
-const previousConnectionData = ref('');
+// Host value kept per connection type, so switching type doesn't wipe what was typed.
+const connectionSlots = reactive<Record<number, string>>({0: '', 1: ''});
 
 const showModal = ref(false);
 const error = ref('');
@@ -172,14 +177,18 @@ function updatePrivateKey(path: string) {
 }
 
 function onUpdatePasswordSelect(value: number) {
+    // Stash the secret into the type being left, then load the target type's slot.
+    // previousPasswordType stays mount-time so hasSavedSecret keeps its meaning.
+    secretSlots[activeSecretType.value] = previewPasswordData.value;
+    previewPasswordData.value = secretSlots[value] ?? '';
+    activeSecretType.value = value;
     passphrase.value = '';
-    if (value != previousPasswordType.value) previewPasswordData.value = '';
-    else previewPasswordData.value = previousPasswordData.value;
 }
 
 function onUpdateConnectionSelect(value: number) {
-    if (value != previousConnectionType.value) previewConnectionData.value = '';
-    else previewConnectionData.value = previousConnectionData.value;
+    connectionSlots[previousConnectionType.value] = previewConnectionData.value;
+    previewConnectionData.value = connectionSlots[value] ?? '';
+    previousConnectionType.value = value;
 }
 
 onMounted(() => {
@@ -194,16 +203,17 @@ onMounted(() => {
 
     previousConnectionType.value = config.data.connection.type;
     previewConnectionData.value = h.host;
-    previousConnectionData.value = h.host;
+    connectionSlots[config.data.connection.type] = h.host;
 
     previousPasswordType.value = config.data.connection.password.type;
+    activeSecretType.value = config.data.connection.password.type;
     previewPasswordData.value = h.auth.kind === 'key' ? h.auth.path : '';
-    previousPasswordData.value = previewPasswordData.value;
+    secretSlots[config.data.connection.password.type] = previewPasswordData.value;
 });
 </script>
 
 <template>
-    <Title title="Setting" />
+    <Title title="Settings" />
     <hr class="m-3" />
     <form
         @submit="updateSSH"
@@ -236,14 +246,16 @@ onMounted(() => {
                 name="SSH Port"
                 type="number"
                 placeholder="22"
+                min="1"
+                max="65535"
                 :required="true"
             />
         </div>
         <div v-if="config.data.connection.type === 1">
             <Text
                 v-model="previewConnectionData"
-                name="URL Cloudflare Tunnel"
-                placeholder="ssh.example.dev"
+                name="Cloudflare hostname"
+                placeholder="ssh.example.com"
                 :required="true"
             />
         </div>
@@ -319,7 +331,7 @@ onMounted(() => {
         <Button
             v-if="props.actionType !== 'add'"
             @click="showModal = true"
-            :class="`!bg-red-500 !hover:bg-red-600`"
+            :class="`!bg-red-500 hover:!bg-red-600`"
             class="mr-2 mt-3 mb-2 w-full"
             type="button"
         >
@@ -327,14 +339,15 @@ onMounted(() => {
         </Button>
         <Dialog
             :show="showModal"
+            label="Delete this config?"
             @close="showModal = false"
         >
             <div>
-                <p class="text-black dark:text-white">Are you sure delete this config?</p>
+                <p class="text-black dark:text-white">Delete this config? This cannot be undone.</p>
                 <div class="space-y-1">
                     <Button
                         v-if="props.actionType !== 'add'"
-                        :class="`!bg-red-500 !hover:bg-red-600`"
+                        :class="`!bg-red-500 hover:!bg-red-600`"
                         class="mr-2 mt-3 mb-2 w-full"
                         type="button"
                         @click="deleteConfig"
@@ -342,6 +355,7 @@ onMounted(() => {
                         Delete it!
                     </Button>
                     <Button
+                        :class="`!bg-slate-200 !text-slate-700 hover:!bg-slate-300 dark:!bg-slate-700 dark:!text-white dark:hover:!bg-slate-600`"
                         class="mr-2 mt-3 mb-2 w-full"
                         type="button"
                         @click="showModal = false"

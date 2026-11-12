@@ -34,13 +34,13 @@ const fitAddon = new FitAddon();
 const termDiv = ref<HTMLDivElement | null>(null);
 const isShow = ref(false);
 
-// Modal loading. Steps: 0 connecting, 3 auth failed, 4 timeout, 5 other error.
+// Modal loading. Steps: 0 connecting, 3 auth failed, 4 timeout, 5 other error, 6 host key changed.
 const isLoading = ref(true);
 const pageStep = ref(0);
 const errorText = ref('');
 const prompt = ref<(HostKeyPrompt & {id: string}) | null>(null);
 
-// Cloudflare Access sign-in progress, shown under "Connecting to server ....".
+// Cloudflare Access sign-in progress, shown under the connecting status.
 const CF_STATUS_TEXT: Record<string, string> = {
     probe: 'Looking for the Cloudflare Access app...',
     cache: 'Using the saved Cloudflare token...',
@@ -52,12 +52,48 @@ const CF_STATUS_TEXT: Record<string, string> = {
 const cfStatus = ref('');
 const cfAttempt = ref(0);
 
+// Elapsed connect time (m:ss), shown next to the status line; restarted by Retry.
+const elapsedText = ref('0:00');
+let startedAt = 0;
+let elapsedTimer = 0;
+function startElapsed() {
+    stopElapsed();
+    startedAt = Date.now();
+    elapsedText.value = '0:00';
+    elapsedTimer = window.setInterval(() => {
+        const s = Math.floor((Date.now() - startedAt) / 1000);
+        elapsedText.value = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    }, 1000);
+}
+function stopElapsed() {
+    if (elapsedTimer) clearInterval(elapsedTimer);
+    elapsedTimer = 0;
+}
+
 // Footer monitor. First sample has no delta yet, so rates stay `--` for ~3s.
 const stats = ref<SessionStats>({cpu: null, mem: null, disk: null, rx_kbps: null, tx_kbps: null});
 let poller = 0;
 let polling = false;
 const pct = (v: number | null) => (v === null ? '--%' : `${Math.round(v)}%`);
 const net = (v: number | null) => (v === null ? '--' : `${Math.round(v)}K/s`);
+// Hover hint for metrics that have no sample yet (first ~3s or non-Linux host).
+const NO_DATA_TITLE = 'No data for this host (non-Linux or still sampling)';
+
+// Color encodes load level; the matching word goes into the tooltip so the
+// signal is never color-only.
+function levelClass(v: number | null, warn: number, crit: number) {
+    if (v === null) return '';
+    if (v >= crit) return 'text-red-500 dark:text-red-400';
+    if (v >= warn) return 'text-amber-500 dark:text-amber-400';
+    return '';
+}
+
+function levelWord(v: number | null, warn: number, crit: number) {
+    if (v === null) return NO_DATA_TITLE;
+    if (v >= crit) return 'critical';
+    if (v >= warn) return 'high';
+    return 'normal';
+}
 async function refreshStats() {
     // Skip if the previous exec is still in flight: queued execs would stall the shell loop.
     if (polling || !sessionId || !props.active) return;
@@ -83,11 +119,13 @@ let sessionId: string | null = null;
 let unmounting = false;
 
 function fail(err: AppError) {
+    stopElapsed();
     isShow.value = false;
     isLoading.value = false;
     prompt.value = null;
     cfStatus.value = '';
-    pageStep.value = err.code === 'auth_failed' ? 3 : err.code === 'timeout' ? 4 : 5;
+    pageStep.value =
+        err.code === 'auth_failed' ? 3 : err.code === 'timeout' ? 4 : err.code === 'host_key_changed' ? 6 : 5;
     errorText.value = err.message;
 }
 
@@ -145,10 +183,21 @@ onMounted(async () => {
         if (sessionId) sessionWrite(sessionId, data).catch(() => {});
     });
 
+    await connect();
+});
+
+// One connect attempt; doubles as the Retry path (resets the modal state first).
+async function connect() {
+    isLoading.value = true;
+    pageStep.value = 0;
+    errorText.value = '';
+    cfStatus.value = '';
+    startElapsed();
     try {
         sent = `${term.cols}x${term.rows}`;
         sessionId = await sessionOpen(props.host.id, term.cols, term.rows, onEvent);
         cfStatus.value = '';
+        stopElapsed();
         isShow.value = true;
         startStats();
         await nextTick();
@@ -157,7 +206,7 @@ onMounted(async () => {
     } catch (e) {
         fail(errorOf(e));
     }
-});
+}
 
 watch(
     () => props.active,
@@ -169,6 +218,7 @@ watch(
 onBeforeUnmount(() => {
     unmounting = true;
     stopStats();
+    stopElapsed();
     observer.disconnect();
     cancelAnimationFrame(frame);
     if (sessionId) sessionClose(sessionId).catch(() => {});
@@ -184,7 +234,7 @@ onBeforeUnmount(() => {
                 class="absolute inset-0"
             />
             <div
-                class="absolute inset-0 flex items-center justify-center mx-auto z-20 bg-slate-800"
+                class="absolute inset-0 flex items-center justify-center mx-auto z-20 bg-slate-900/70"
                 v-show="!isShow"
             >
                 <div
@@ -196,7 +246,7 @@ onBeforeUnmount(() => {
                             v-if="isLoading"
                         >
                             <svg
-                                class="inline mr-2 w-8 h-8 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600"
+                                class="inline mr-2 w-8 h-8 text-gray-200 animate-spin dark:text-gray-600 fill-indigo-600"
                                 viewBox="0 0 100 101"
                                 fill="none"
                                 xmlns="http://www.w3.org/2000/svg"
@@ -220,7 +270,13 @@ onBeforeUnmount(() => {
                             />
                         </div>
                         <div v-if="pageStep === 0">
-                            <h1 class="text-black dark:text-white">Connecting to server ....</h1>
+                            <h1 class="text-black dark:text-white"
+                                >Connecting to {{ props.host.username }}@{{ props.host.host }}...</h1
+                            >
+                            <p
+                                class="text-black dark:text-white text-xs mt-1"
+                                v-text="elapsedText"
+                            />
                             <h4
                                 v-if="cfStatus"
                                 class="text-black dark:text-white text-sm mt-2"
@@ -230,60 +286,132 @@ onBeforeUnmount(() => {
                                     ({{ cfAttempt }}/10)</template
                                 >
                             </h4>
+                            <div v-if="isLoading && !prompt" class="mt-3">
+                                <Button
+                                    :class="`!bg-slate-200 hover:!bg-slate-300 !text-slate-700 dark:!bg-slate-700 dark:hover:!bg-slate-600 dark:!text-white`"
+                                    class="w-full"
+                                    type="button"
+                                    @click="emit('close')"
+                                >
+                                    Cancel
+                                </Button>
+                            </div>
                         </div>
                         <template v-if="pageStep >= 3">
-                            <div v-if="pageStep === 3">
-                                <h1 class="text-black dark:text-white">Authentication failed</h1>
-                                <h4 class="text-black dark:text-white text-sm"
-                                    >Please check your username, password or key.</h4
-                                >
-                            </div>
-                            <div v-if="pageStep === 4">
-                                <h1 class="text-black dark:text-white">Timeout from server</h1>
-                                <h4 class="text-black dark:text-white text-sm"
-                                    >Please check that the host is on and reachable.</h4
-                                >
-                            </div>
-                            <div v-if="pageStep === 5">
-                                <h1 class="text-black dark:text-white">Connection failed</h1>
-                            </div>
-                            <h4
-                                v-if="errorText"
-                                class="text-black dark:text-white text-xs break-words"
-                                v-text="errorText"
-                            />
-                            <Button
-                                class="w-full"
-                                type="button"
-                                @click="emit('close')"
+                            <template v-if="pageStep !== 6">
+                                <div v-if="pageStep === 3">
+                                    <h1 class="text-black dark:text-white">Authentication failed</h1>
+                                    <h4 class="text-black dark:text-white text-sm"
+                                        >Please check your username, password or key.</h4
+                                    >
+                                </div>
+                                <div v-if="pageStep === 4">
+                                    <h1 class="text-black dark:text-white">Timeout from server</h1>
+                                    <h4 class="text-black dark:text-white text-sm"
+                                        >Please check that the host is on and reachable.</h4
+                                    >
+                                </div>
+                                <div v-if="pageStep === 5">
+                                    <h1 class="text-black dark:text-white">Connection failed</h1>
+                                    <h4 class="text-black dark:text-white text-sm"
+                                        >Check the host, port and your network, then retry.</h4
+                                    >
+                                </div>
+                                <h4
+                                    v-if="errorText"
+                                    class="text-black dark:text-white text-xs break-words line-clamp-6"
+                                    role="alert"
+                                    v-text="errorText"
+                                />
+                                <div class="flex space-x-2">
+                                    <Button
+                                        class="w-full"
+                                        type="button"
+                                        @click="emit('close')"
+                                    >
+                                        Close
+                                    </Button>
+                                    <Button
+                                        class="w-full"
+                                        type="button"
+                                        @click="connect"
+                                    >
+                                        Retry
+                                    </Button>
+                                </div>
+                            </template>
+                            <div
+                                v-else
+                                class="w-full bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800 rounded-md p-4 text-left"
                             >
-                                Close
-                            </Button>
+                                <h1 class="text-black dark:text-white font-bold">Host key changed</h1>
+                                <p
+                                    class="text-black dark:text-white text-sm mt-2 break-words"
+                                    v-text="errorText"
+                                />
+                                <div class="flex space-x-2 mt-3">
+                                    <Button
+                                        :class="`!bg-slate-200 hover:!bg-slate-300 !text-slate-700 dark:!bg-slate-700 dark:hover:!bg-slate-600 dark:!text-white`"
+                                        class="w-full"
+                                        type="button"
+                                        @click="emit('close')"
+                                    >
+                                        Close
+                                    </Button>
+                                    <Button
+                                        class="w-full"
+                                        type="button"
+                                        @click="connect"
+                                    >
+                                        Retry
+                                    </Button>
+                                </div>
+                            </div>
                         </template>
                     </div>
                 </div>
             </div>
         </div>
         <div
-            class="py-1 sticky bottom-0 space-x-3 flex bg-gray-200 z-50 w-full dark:bg-slate-800 text-dark dark:text-white justify-end pr-2"
+            class="py-1 sticky bottom-0 space-x-3 flex bg-gray-200 z-50 w-full dark:bg-slate-800 text-black dark:text-white justify-end pr-2"
         >
-            <div class="flex items-center space-x-1">
+            <div
+                class="flex items-center space-x-1"
+                aria-label="CPU usage"
+                :title="stats.cpu === null ? NO_DATA_TITLE : `${Math.round(stats.cpu)}% — ${levelWord(stats.cpu, 70, 90)}`"
+            >
                 <Icon icon="fas fa-microchip" />
-                <p v-text="pct(stats.cpu)" />
+                <p :class="levelClass(stats.cpu, 70, 90)" v-text="pct(stats.cpu)" />
             </div>
-            <div class="flex items-center space-x-1">
+            <div
+                class="flex items-center space-x-1"
+                aria-label="Memory usage"
+                :title="stats.mem === null ? NO_DATA_TITLE : `${Math.round(stats.mem)}% — ${levelWord(stats.mem, 80, 95)}`"
+            >
                 <Icon icon="fas fa-memory" />
-                <p v-text="pct(stats.mem)" />
+                <p :class="levelClass(stats.mem, 80, 95)" v-text="pct(stats.mem)" />
             </div>
-            <div class="flex items-center space-x-1">
+            <div
+                class="flex items-center space-x-1"
+                aria-label="Disk usage"
+                :title="stats.disk === null ? NO_DATA_TITLE : `${stats.disk}% — ${levelWord(stats.disk, 80, 90)}`"
+            >
                 <Icon icon="fas fa-hard-drive" />
-                <p v-text="pct(stats.disk)" />
+                <p :class="levelClass(stats.disk, 80, 90)" v-text="pct(stats.disk)" />
             </div>
-            <div class="flex items-center space-x-1">
+            <div
+                class="flex items-center space-x-1"
+                aria-label="Upload speed"
+                :title="stats.tx_kbps === null ? NO_DATA_TITLE : undefined"
+            >
                 <Icon icon="fas fa-upload" />
                 <p v-text="net(stats.tx_kbps)" />
             </div>
-            <div class="flex items-center space-x-1">
+            <div
+                class="flex items-center space-x-1"
+                aria-label="Download speed"
+                :title="stats.rx_kbps === null ? NO_DATA_TITLE : undefined"
+            >
                 <Icon icon="fas fa-download" />
                 <p v-text="net(stats.rx_kbps)" />
             </div>
@@ -292,6 +420,7 @@ onBeforeUnmount(() => {
 
     <Dialog
         :show="prompt !== null"
+        label="Unknown host key"
         @close="decide(false)"
     >
         <div
@@ -317,7 +446,7 @@ onBeforeUnmount(() => {
                     Trust and connect
                 </Button>
                 <Button
-                    :class="`!bg-red-500 !hover:bg-red-600`"
+                    :class="`!bg-slate-200 hover:!bg-slate-300 !text-slate-700 dark:!bg-slate-700 dark:hover:!bg-slate-600 dark:!text-white`"
                     class="mr-2 mt-3 mb-2 w-full"
                     type="button"
                     @click="decide(false)"
