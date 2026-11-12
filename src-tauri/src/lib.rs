@@ -24,13 +24,19 @@ pub fn run() {
         )
         .init();
 
-    tauri::Builder::default()
-        // Must be first: blocks a second process that would rewrite hosts.json from stale memory.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.set_focus();
-            }
-        }))
+    let builder = tauri::Builder::default();
+
+    // Must be registered first: blocks a second process that would rewrite hosts.json
+    // from stale memory. Release builds only — a `tauri dev` instance may legitimately
+    // run next to the installed release app, and both share one identifier/socket.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.set_focus();
+        }
+    }));
+
+    builder
         // Only `open` is granted (capabilities/default.json): picks a key file path.
         .plugin(tauri_plugin_dialog::init())
         // Rust-side use only (`OpenerExt`): opens the validated Cloudflare Access
