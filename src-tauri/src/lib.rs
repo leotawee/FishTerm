@@ -5,6 +5,7 @@ mod commands;
 mod error;
 mod secrets;
 mod ssh;
+mod sftp;
 mod stats;
 mod store;
 
@@ -134,6 +135,9 @@ pub fn run() {
             commands::session_stats,
             commands::hostkey_decide,
             commands::url_open,
+            sftp::sftp_ls,
+            sftp::sftp_download,
+            sftp::sftp_upload,
             commands::quit_app,
         ])
         .run(tauri::generate_context!())

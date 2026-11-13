@@ -98,6 +98,11 @@ impl AppState {
             .map_err(|_| AppError::NotFound)
     }
 
+    /// Shared SSH handle for a live session, for SFTP-style extra channels.
+    pub fn handle_for(&self, id: Uuid) -> Option<std::sync::Arc<ssh::SessionHandle<ssh::Client>>> {
+        self.handles.lock().ok()?.get(&id).cloned()
+    }
+
     pub fn write(&self, id: Uuid, data: String) -> AppResult<()> {
         if data.len() > MAX_WRITE_LEN {
             return Err(AppError::Invalid("write too large"));
