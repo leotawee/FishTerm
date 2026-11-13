@@ -23,6 +23,14 @@ import {
     faDesktop,
     faSun,
     faMoon,
+    faFish,
+    faFolder,
+    faFolderOpen,
+    faFile,
+    faLevelUpAlt,
+    faTrash,
+    faArrowUp,
+    faBan,
 } from '@fortawesome/free-solid-svg-icons';
 import {faCloudflare} from '@fortawesome/free-brands-svg-icons';
 
@@ -80,6 +88,14 @@ library.add(
     faDesktop,
     faSun,
     faMoon,
+    faFish,
+    faFolder,
+    faFolderOpen,
+    faFile,
+    faLevelUpAlt,
+    faTrash,
+    faArrowUp,
+    faBan,
 );
 
 export default FontAwesomeIcon;
