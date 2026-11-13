@@ -61,6 +61,16 @@ pub fn run() {
             let secrets = Box::new(KeyringStore::new(KEYCHAIN_SERVICE));
             app.manage(AppState::new(store, secrets, warnings, known_hosts));
 
+            // Acrylic behind the translucent top bar; the overlay titlebar hides the
+            // native strip so the bar itself follows the theme.
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_effects(
+                    tauri::window::EffectsBuilder::new()
+                        .effect(tauri::window::Effect::UnderWindowBackground)
+                        .build(),
+                );
+            }
+
             // Native menu: Cmd+W / Cmd+Q accelerators fire here BEFORE the webview
             // sees any key, so the confirms live in App.vue behind these events.
             let quit = MenuItemBuilder::with_id("quit", "Quit FishTerm")

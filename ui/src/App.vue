@@ -68,83 +68,84 @@ watch(tabIndex, (n: string) => {
 
 <template>
     <div class="flex flex-col h-screen">
-        <nav class="flex mx-auto bg-gray-200 z-50 w-full dark:bg-[var(--c-card)] justify-between">
-            <!-- Tabs scroll sideways instead of wrapping onto a second row on narrow windows. -->
-            <div class="flex min-w-0 overflow-x-auto">
-                <button
-                    class="ml-2 space-x-8 w-[250px] shrink-0 text-left"
-                    data-tab="home"
-                    aria-label="Go to Home"
-                    @click="tabIndex = 'home'"
-                >
-                    <div
-                        :class="`bg-white py-1 ${
-                            tabIndex === 'home'
-                                ? 'pt-2 mt-1 dark:bg-[var(--c-card)] border-t-2 border-[var(--c-accent)] text-[var(--c-text)]'
-                                : 'mt-2 dark:bg-[var(--c-bg)] border-t-2 border-transparent text-[var(--c-muted)]'
-                        } rounded-t-lg hover:bg-slate-100 dark:hover:bg-[var(--c-card)]`"
+        <nav
+            data-tauri-drag-region
+            class="z-50 w-full bg-[var(--c-bg)]/60 dark:bg-[var(--c-card)]/60 backdrop-blur-2xl"
+        >
+            <!-- Overlay titlebar strip: traffic lights live here; the strip drags the window. -->
+            <div
+                data-tauri-drag-region
+                class="h-7"
+            />
+            <div class="flex items-center gap-1.5 px-2 pb-1.5 min-w-0">
+                <!-- Tabs scroll sideways instead of wrapping onto a second row on narrow windows. -->
+                <div class="flex items-center gap-1.5 min-w-0 overflow-x-auto flex-1">
+                    <button
+                        class="px-3 py-1.5 rounded-md text-sm shrink-0 transition-colors"
+                        :class="tabIndex === 'home'
+                            ? 'bg-[var(--c-ghost-hover)] text-[var(--c-text)] font-medium'
+                            : 'text-[var(--c-muted)] hover:text-[var(--c-text)]'"
+                        data-tab="home"
+                        aria-label="Go to Home"
+                        @click="tabIndex = 'home'"
                     >
-                        <p class="ml-2 inline-flex items-center"> Home </p>
-                    </div>
-                </button>
-
-                <div
-                    class="ml-2 space-x-8 w-[250px] shrink-0 text-left cursor-pointer"
-                    role="button"
-                    tabindex="0"
-                    v-for="key in Object.keys(terminal)"
-                    :key="key"
-                    :data-tab="key"
-                    :aria-label="`Switch to tab ${terminal[key]?.title}`"
-                    @click="tabIndex = key"
-                    @keydown.enter="tabIndex = key"
-                >
+                        Home
+                    </button>
                     <div
-                        :class="`bg-white hover:bg-slate-100 ${
-                            tabIndex === key
-                                ? 'pt-2 mt-1 dark:bg-[var(--c-card)] border-t-2 border-[var(--c-accent)]'
-                                : 'mt-2 dark:bg-[var(--c-bg)] border-t-2 border-transparent'
-                        } py-1 rounded-t-lg dark:hover:bg-[var(--c-card)]`"
+                        class="shrink-0"
+                        role="button"
+                        tabindex="0"
+                        v-for="key in Object.keys(terminal)"
+                        :key="key"
+                        :data-tab="key"
+                        :aria-label="`Switch to tab ${terminal[key]?.title}`"
+                        @click="tabIndex = key"
+                        @keydown.enter="tabIndex = key"
                     >
-                        <div class="flex justify-between items-center">
-                            <p
-                                class="ml-2 min-w-0 flex-1 truncate"
-                                :class="tabIndex === key ? 'text-[var(--c-text)]' : 'text-[var(--c-muted)]'"
-                            >
+                        <div
+                            class="w-[210px] flex items-center justify-between gap-1 px-3 py-1.5 rounded-md text-sm transition-colors"
+                            :class="tabIndex === key
+                                ? 'bg-[var(--c-ghost-hover)] text-[var(--c-text)] font-medium'
+                                : 'text-[var(--c-muted)] hover:text-[var(--c-text)]'"
+                        >
+                            <p class="min-w-0 flex-1 truncate">
                                 {{ terminal[key]?.title }}
                             </p>
                             <button
-                                class="flex items-center rounded-full hover:bg-gray-200 px-2 mr-3 py-1"
+                                class="shrink-0 rounded p-0.5 hover:bg-[var(--c-ghost-hover)]"
                                 aria-label="Close terminal"
                                 @click.stop="requestCloseTerminal(key)"
                                 @keydown.enter.stop
                             >
-                                <Icon icon="fas fa-close" />
+                                <Icon
+                                    icon="fas fa-close"
+                                    class="text-[var(--c-muted)]"
+                                />
                             </button>
                         </div>
                     </div>
                 </div>
-            </div>
-            <div class="flex items-center shrink-0 ml-3 mr-5">
-                <button
-                    aria-label="Appearance"
-                    class="mr-3"
-                    @click="showAppearance = true"
-                >
-                    <Icon
-                        icon="fas fa-palette"
-                        class="text-[var(--c-text)]"
-                    />
-                </button>
-                <button
-                    aria-label="About FishTerm"
-                    @click="showModal = true"
-                >
-                    <Icon
-                        icon="fas fa-info-circle"
-                        class="text-[var(--c-text)]"
-                    />
-                </button>
+                <div class="flex items-center shrink-0 ml-3 mr-4">
+                    <button
+                        aria-label="Appearance"
+                        class="mr-3"
+                        @click="showAppearance = true"
+                    >
+                        <Icon
+                            icon="fas fa-palette"
+                            class="text-[var(--c-text)]"
+                        />
+                    </button>
+                    <button
+                        aria-label="About FishTerm"
+                        @click="showModal = true"
+                    >
+                        <Icon
+                            icon="fas fa-info-circle"
+                            class="text-[var(--c-text)]"
+                        />
+                    </button>
+                </div>
             </div>
         </nav>
 
