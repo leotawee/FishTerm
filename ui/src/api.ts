@@ -109,3 +109,27 @@ export const hostkeyDecide = (promptId: string, accept: boolean) =>
 export const quitApp = () => invoke<void>('quit_app');
 /** Open a terminal link in the default browser (Rust allows http/https/mailto only). */
 export const urlOpen = (url: string) => invoke<void>('url_open', {url});
+
+export interface SftpEntry {
+    name: string;
+    path: string;
+    is_dir: boolean;
+    size: number;
+    modified: number | null;
+}
+
+export interface SftpProgress {
+    bytes: number;
+    total: number;
+}
+
+/** `path: ''` lists the remote home directory. */
+export const sftpLs = (id: string, path: string) => invoke<SftpEntry[]>('sftp_ls', {id, path});
+export const sftpDownload = (id: string, remotePath: string, localPath: string, onProgress: (p: SftpProgress) => void) => {
+    const progress = new Channel<SftpProgress>(onProgress);
+    return invoke<number>('sftp_download', {id, remotePath, localPath, progress});
+};
+export const sftpUpload = (id: string, localPath: string, remotePath: string, onProgress: (p: SftpProgress) => void) => {
+    const progress = new Channel<SftpProgress>(onProgress);
+    return invoke<number>('sftp_upload', {id, localPath, remotePath, progress});
+};

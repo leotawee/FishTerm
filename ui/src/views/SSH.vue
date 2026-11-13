@@ -9,6 +9,7 @@ import {getTermTheme} from '../appearance';
 
 import Button from '../components/Button.vue';
 import Dialog from '../components/Dialog.vue';
+import SftpDialog from '../components/dialog/sftp.vue';
 import {
     sessionOpen,
     sessionWrite,
@@ -162,6 +163,7 @@ function stopStats() {
 
 let sessionId: string | null = null;
 let unmounting = false;
+const showSftp = ref(false);
 
 function fail(err: AppError) {
     stopElapsed();
@@ -434,6 +436,15 @@ onBeforeUnmount(() => {
         <div
             class="py-1 sticky bottom-0 space-x-3 flex bg-gray-200 z-50 w-full dark:bg-slate-800 text-[var(--c-text)] justify-end pr-2"
         >
+            <Button
+                v-if="isShow"
+                variant="ghost"
+                class="!mr-auto"
+                @click="showSftp = true"
+            >
+                <Icon icon="fas fa-folder-open" />
+                Files
+            </Button>
             <div
                 class="flex items-center space-x-1"
                 aria-label="CPU usage"
@@ -514,6 +525,18 @@ onBeforeUnmount(() => {
                 </Button>
             </div>
         </div>
+    </Dialog>
+
+    <Dialog
+        :show="showSftp"
+        label="Remote files"
+        @close="showSftp = false"
+    >
+        <SftpDialog
+            v-if="sessionId"
+            :sessionId="sessionId"
+            @close="showSftp = false"
+        />
     </Dialog>
 </template>
 
