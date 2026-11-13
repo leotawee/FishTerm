@@ -79,7 +79,7 @@ function addTransfer(name: string): (p: SftpProgress) => void {
 async function download(e: SftpEntry) {
     if (busy.value) return;
     error.value = '';
-    const dest = await save({defaultPath: e.name});
+    const dest = await save({defaultPath: e.name}).catch(() => null);
     if (!dest) return;
     busy.value = true;
     try {

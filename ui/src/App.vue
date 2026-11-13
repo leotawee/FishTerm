@@ -78,13 +78,25 @@ watch(tabIndex, (n: string) => {
                 class="h-7"
             />
             <div class="flex items-center gap-1.5 px-2 pb-1.5 min-w-0">
+                <!-- Product mark: accent fish + wordmark in ink; survives both themes. -->
+                <div
+                    data-tauri-drag-region
+                    class="flex items-center gap-1.5 shrink-0 mr-1"
+                >
+                    <Icon
+                        icon="fas fa-fish"
+                        class="text-[var(--c-accent)]"
+                        aria-hidden="true"
+                    />
+                    <span class="text-sm font-semibold text-[var(--c-text)]">FishTerm</span>
+                </div>
                 <!-- Tabs scroll sideways instead of wrapping onto a second row on narrow windows. -->
                 <div class="flex items-center gap-1.5 min-w-0 overflow-x-auto flex-1">
                     <button
-                        class="px-3 py-1.5 rounded-md text-sm shrink-0 transition-colors"
+                        class="px-3 py-1.5 rounded-md text-sm shrink-0 transition-colors border"
                         :class="tabIndex === 'home'
-                            ? 'bg-[var(--c-ghost-hover)] text-[var(--c-text)] font-medium'
-                            : 'text-[var(--c-muted)] hover:text-[var(--c-text)]'"
+                            ? 'bg-[var(--c-ghost-hover)] text-[var(--c-text)] font-medium border-[var(--c-border)]'
+                            : 'text-[var(--c-muted)] border-[var(--c-border)] hover:text-[var(--c-text)]'"
                         data-tab="home"
                         aria-label="Go to Home"
                         @click="tabIndex = 'home'"
@@ -103,10 +115,10 @@ watch(tabIndex, (n: string) => {
                         @keydown.enter="tabIndex = key"
                     >
                         <div
-                            class="w-[210px] flex items-center justify-between gap-1 px-3 py-1.5 rounded-md text-sm transition-colors"
+                            class="w-[210px] flex items-center justify-between gap-1 px-3 py-1.5 rounded-md text-sm transition-colors border"
                             :class="tabIndex === key
-                                ? 'bg-[var(--c-ghost-hover)] text-[var(--c-text)] font-medium'
-                                : 'text-[var(--c-muted)] hover:text-[var(--c-text)]'"
+                                ? 'bg-[var(--c-ghost-hover)] text-[var(--c-text)] font-medium border-[var(--c-border)]'
+                                : 'text-[var(--c-muted)] border-[var(--c-border)] hover:text-[var(--c-text)]'"
                         >
                             <p class="min-w-0 flex-1 truncate">
                                 {{ terminal[key]?.title }}

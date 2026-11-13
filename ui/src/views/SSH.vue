@@ -231,6 +231,7 @@ onMounted(async () => {
     if (termDiv.value) {
         term.open(termDiv.value);
         // Cmd+C copies the visible selection (Cmd+V paste is handled by xterm itself).
+        // Cmd+Shift+S opens the SFTP browser for the live session.
         termDiv.value?.addEventListener(
             'keydown',
             e => {
@@ -238,6 +239,10 @@ onMounted(async () => {
                     e.preventDefault();
                     e.stopPropagation();
                     void writeText(term.getSelection()).catch(() => {});
+                } else if (e.metaKey && e.shiftKey && e.key.toLowerCase() === 's' && sessionId) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showSftp.value = true;
                 }
             },
             true,
@@ -457,6 +462,7 @@ onBeforeUnmount(() => {
                 v-if="isShow"
                 variant="ghost"
                 class="!mr-auto"
+                title="Browse remote files (⌘⇧S)"
                 @click="showSftp = true"
             >
                 <Icon icon="fas fa-folder-open" />
