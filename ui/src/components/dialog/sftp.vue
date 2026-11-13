@@ -14,7 +14,10 @@ const cwd = ref('');
 const entries = ref<SftpEntry[]>([]);
 const loading = ref(false);
 const error = ref('');
-// One row per active transfer; done rows linger until the dialog closes.
+// One transfer at a time (spec security note: keeps channel windowing predictable).
+// shortcut: UI-level lock only; the backend permits parallel channels if a future need shows up.
+const busy = ref(false);
+// One row per transfer this session; done rows linger until the dialog closes.
 const transfers = ref<{name: string; bytes: number; total: number}[]>([]);
 
 function fmtSize(n: number) {
@@ -27,6 +30,11 @@ function fmtSize(n: number) {
         u++;
     }
     return `${v.toFixed(1)} ${units[u]}`;
+}
+
+function fmtTime(unix: number | null) {
+    if (!unix) return '';
+    return new Date(unix * 1000).toLocaleString(undefined, {dateStyle: 'short', timeStyle: 'short'});
 }
 
 /** `''` is the remote home; render it as `~`. */
@@ -45,11 +53,10 @@ async function ls(path: string) {
     loading.value = true;
     error.value = '';
     try {
-        entries.value = await sftpLs(props.sessionId, path);
-        // Entries carry full paths; the cwd is the shared prefix (dirname of the first).
-        const first = entries.value[0]?.path ?? '';
-        const cut = first.lastIndexOf('/');
-        cwd.value = cut > 0 ? first.slice(0, cut) : path;
+        // Server-canonical cwd; correct even when the directory is empty.
+        const listing = await sftpLs(props.sessionId, path);
+        entries.value = listing.entries;
+        cwd.value = listing.cwd;
     } catch (e) {
         error.value = errorOf(e).message;
     } finally {
@@ -57,46 +64,48 @@ async function ls(path: string) {
     }
 }
 
-function track(name: string): [(p: SftpProgress) => void, number] {
+function addTransfer(name: string): (p: SftpProgress) => void {
     transfers.value.push({name, bytes: 0, total: 1});
     const i = transfers.value.length - 1;
-    return [
-        p => {
-            const t = transfers.value[i];
-            if (t) {
-                t.bytes = p.bytes;
-                t.total = p.total || 1;
-            }
-        },
-        i,
-    ];
+    return p => {
+        const t = transfers.value[i];
+        if (t) {
+            t.bytes = p.bytes;
+            t.total = p.total || 1;
+        }
+    };
 }
 
 async function download(e: SftpEntry) {
+    if (busy.value) return;
     error.value = '';
     const dest = await save({defaultPath: e.name});
     if (!dest) return;
-    const [onProgress] = track(e.name);
+    busy.value = true;
     try {
-        await sftpDownload(props.sessionId, e.path, dest, onProgress);
+        await sftpDownload(props.sessionId, e.path, dest, addTransfer(e.name));
     } catch (err) {
         error.value = errorOf(err).message;
+    } finally {
+        busy.value = false;
     }
 }
 
 async function upload() {
+    if (busy.value) return;
     error.value = '';
     const src = await open({multiple: false});
     if (!src || Array.isArray(src)) return;
     const name = src.split(/[\\/]/).pop() || 'file';
-    // Remote join: cwd never ends with '/' (it is the home or a canonical dir).
     const remote = `${cwd.value}/${name}`;
-    const [onProgress] = track(name);
+    busy.value = true;
     try {
-        await sftpUpload(props.sessionId, src, remote, onProgress);
+        await sftpUpload(props.sessionId, src, remote, addTransfer(name));
         await ls(cwd.value);
     } catch (err) {
         error.value = errorOf(err).message;
+    } finally {
+        busy.value = false;
     }
 }
 
@@ -111,6 +120,7 @@ onMounted(() => ls(''));
                 <Button
                     type="button"
                     variant="ghost"
+                    :disabled="busy"
                     @click="upload"
                 >
                     <Icon icon="fas fa-arrow-up" />
@@ -220,7 +230,8 @@ onMounted(() => ls(''));
                             </button>
                             <button
                                 v-else
-                                class="text-left hover:underline"
+                                class="text-left hover:underline disabled:opacity-50"
+                                :disabled="busy"
                                 :title="`Download ${e.name}`"
                                 @click="download(e)"
                             >
@@ -232,9 +243,12 @@ onMounted(() => ls(''));
                         </td>
                         <td
                             class="px-2 py-1 text-right text-[var(--c-muted)] whitespace-nowrap"
-                        >
-                            {{ e.is_dir ? 'dir' : fmtSize(e.size) }}
-                        </td>
+                            v-text="e.is_dir ? 'dir' : fmtSize(e.size)"
+                        />
+                        <td
+                            class="px-2 py-1 text-right text-[var(--c-muted)] whitespace-nowrap"
+                            v-text="fmtTime(e.modified)"
+                        />
                     </tr>
                 </tbody>
             </table>

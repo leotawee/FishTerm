@@ -123,8 +123,14 @@ export interface SftpProgress {
     total: number;
 }
 
+export interface SftpListing {
+    /** Server-canonical directory; always use this, never a client guess. */
+    cwd: string;
+    entries: SftpEntry[];
+}
+
 /** `path: ''` lists the remote home directory. */
-export const sftpLs = (id: string, path: string) => invoke<SftpEntry[]>('sftp_ls', {id, path});
+export const sftpLs = (id: string, path: string) => invoke<SftpListing>('sftp_ls', {id, path});
 export const sftpDownload = (id: string, remotePath: string, localPath: string, onProgress: (p: SftpProgress) => void) => {
     const progress = new Channel<SftpProgress>(onProgress);
     return invoke<number>('sftp_download', {id, remotePath, localPath, progress});

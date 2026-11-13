@@ -10,7 +10,7 @@ use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Transfer chunk / progress-report granularity.
-const CHUNK: u64 = 64 * 1024;
+const TRANSFER_CHUNK: u64 = 64 * 1024;
 /// Hard cap per transfer; keeps a runaway path from filling the disk silently.
 const MAX_TRANSFER: u64 = 8 * 1024 * 1024 * 1024; // 8 GiB
 const MAX_PATH_LEN: usize = 4096;
@@ -65,12 +65,20 @@ fn check_local_path(path: &str) -> AppResult<()> {
     Ok(())
 }
 
+#[derive(Serialize)]
+pub struct SftpListing {
+    /// Server-canonical directory the entries belong to. The webview must use
+    /// this, never a client-side guess — an empty dir otherwise derives "/".
+    cwd: String,
+    entries: Vec<SftpEntry>,
+}
+
 #[tauri::command]
 pub async fn sftp_ls(
     state: State<'_, AppState>,
     id: uuid::Uuid,
     path: String,
-) -> AppResult<Vec<SftpEntry>> {
+) -> AppResult<SftpListing> {
     let sftp = sftp_for(&state, id).await?;
     // Empty path = start at the user's home directory.
     let dir = if path.is_empty() {
@@ -99,7 +107,7 @@ pub async fn sftp_ls(
         })
         .collect();
     sort_entries(&mut entries);
-    Ok(entries)
+    Ok(SftpListing { cwd: dir, entries })
 }
 
 /// Progress payload sent to the webview during a transfer.
@@ -115,7 +123,7 @@ async fn copy_with_progress<R: tokio::io::AsyncRead + Unpin, W: tokio::io::Async
     total: u64,
     progress: Channel<SftpProgress>,
 ) -> AppResult<u64> {
-    let mut buf = vec![0u8; CHUNK as usize];
+    let mut buf = vec![0u8; TRANSFER_CHUNK as usize];
     let mut done: u64 = 0;
     loop {
         let n = reader.read(&mut buf).await.map_err(AppError::Io)?;

@@ -30,6 +30,9 @@ pub struct AppState {
     warnings: Mutex<Vec<String>>,
     known_hosts: PathBuf,
     sessions: Mutex<HashMap<Uuid, mpsc::UnboundedSender<Cmd>>>,
+    // TECH DEBT: three parallel per-session maps (sessions/handles/samples) must be
+    // inserted and removed in lockstep; merge into one HashMap<Uuid, Session> when a
+    // fourth per-session field appears.
     /// Shared SSH handle per session so SFTP can open its own channels.
     handles: Mutex<HashMap<Uuid, std::sync::Arc<ssh::SessionHandle<ssh::Client>>>>,
     /// Previous /proc snapshot per session, for CPU% and network-rate deltas.
