@@ -19,7 +19,7 @@ window.addEventListener('keydown', onCaptureKeydown, true);
 </script>
 
 <script lang="ts" setup>
-import {computed, nextTick, onUnmounted, ref, useId} from 'vue';
+import {computed, nextTick, onMounted, onUnmounted, ref, Teleport, useId} from 'vue';
 
 import useClickOutside from '../../plugins/useClickOutside';
 import {isImageIcon} from '../../osIcons';
@@ -60,6 +60,10 @@ const SLabel_dataPreview = computed(
 );
 // Select Box
 const SBox = ref<HTMLUListElement | null>(null);
+// Trigger (for floating-position of the portalled list).
+const triggerRef = ref<HTMLButtonElement | null>(null);
+// Fixed position of the portalled list (computed on open; flipped above when cramped).
+const listPos = ref<Record<string, string> | null>(null);
 // Variable
 let isClickedOutside = false;
 
@@ -89,6 +93,16 @@ function activeIndexOfValue() {
 }
 
 function openDropdown() {
+    // Portal the list to <body> as fixed: a dialog panel scrolls (overflow-y-auto),
+    // so an in-flow dropdown would clip/force the user to scroll the modal itself.
+    const el = triggerRef.value;
+    if (el) {
+        const r = el.getBoundingClientRect();
+        const below = r.bottom + 240 <= window.innerHeight;
+        listPos.value = below
+            ? {top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`}
+            : {bottom: `${window.innerHeight - r.top + 4}px`, left: `${r.left}px`, width: `${r.width}px`};
+    }
     activeIndex.value = activeIndexOfValue();
     SLabel_isOpen.value = true;
     openDropdowns.add(closeDropdown);
@@ -199,6 +213,26 @@ function onTriggerKeydown(event: KeyboardEvent) {
     }
 }
 
+// Any scroll outside the list itself (the dialog panel, the page) would leave the
+// fixed list stranded at a stale spot — just close it. Scrolls inside the listbox
+// are its own content scrolling and are ignored.
+function onWindowScrollOrResize(event: Event) {
+    if (!SLabel_isOpen.value) return;
+    if (SBox.value && event.target instanceof Node && SBox.value.contains(event.target)) return;
+    closeDropdown();
+}
+
+onMounted(() => {
+    window.addEventListener('scroll', onWindowScrollOrResize, true);
+    window.addEventListener('resize', onWindowScrollOrResize);
+});
+
+onUnmounted(() => {
+    window.removeEventListener('scroll', onWindowScrollOrResize, true);
+    window.removeEventListener('resize', onWindowScrollOrResize);
+    closeDropdown();
+});
+
 // Plugins
 onClickOutside(SBox, () => {
     if (SLabel_isOpen.value === true) {
@@ -206,8 +240,6 @@ onClickOutside(SBox, () => {
         closeDropdown();
     }
 });
-
-onUnmounted(closeDropdown);
 </script>
 
 <template>
@@ -215,7 +247,7 @@ onUnmounted(closeDropdown);
         <label
             :id="`${id}-label`"
             :for="id"
-            class="block text-base font-medium text-black dark:text-white mb-2"
+            class="block text-base font-medium text-[var(--c-text)] mb-2"
             v-text="name"
         />
 
@@ -224,6 +256,7 @@ onUnmounted(closeDropdown);
                 <button
                     type="button"
                     :id="id"
+                    ref="triggerRef"
                     @click="clickSelectTextBox"
                     @keydown="onTriggerKeydown"
                     aria-haspopup="listbox"
@@ -233,10 +266,10 @@ onUnmounted(closeDropdown);
                     :aria-activedescendant="
                         SLabel_isOpen && activeIndex >= 0 ? `listbox-item-${activeIndex}` : undefined
                     "
-                    class="cursor-pointer dark:border-slate-600 dark:bg-slate-800 relative w-full rounded-md border border-gray-300 bg-white pl-3 pr-10 py-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 transition ease-out duration-150 sm:text-sm sm:leading-5"
+                    class="cursor-pointer relative w-full rounded-md border border-[var(--c-border)] bg-[var(--c-card)] pl-3 pr-10 py-2 text-left text-[var(--c-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--c-accent)] transition ease-out duration-150 sm:text-sm sm:leading-5"
                 >
                     <div
-                        class="flex items-center space-x-3 text-black dark:text-white"
+                        class="flex items-center space-x-3 text-[var(--c-text)]"
                         v-if="SLabel_dataPreview.name"
                     >
                         <img
@@ -248,7 +281,7 @@ onUnmounted(closeDropdown);
                         <Icon
                             v-else
                             :icon="SLabel_dataPreview.icon"
-                            class="text-black dark:text-white"
+                            class="text-[var(--c-text)]"
                         />
                         <span
                             class="block truncate"
@@ -256,7 +289,7 @@ onUnmounted(closeDropdown);
                         />
                     </div>
                     <div
-                        class="flex items-center space-x-3 text-black dark:text-white"
+                        class="flex items-center space-x-3 text-[var(--c-text)]"
                         v-else
                     >
                         <span
@@ -269,31 +302,33 @@ onUnmounted(closeDropdown);
                     >
                         <Icon
                             icon="fas fa-chevron-down"
-                            class="text-gray-400 dark:text-white"
+                            class="text-[var(--c-muted)]"
                         />
                     </span>
                 </button>
             </span>
-            <transition
-                enter-active-class="transition-opacity ease-out duration-150"
-                enter-from-class="opacity-0"
-                enter-to-class="opacity-100"
-                leave-active-class="transition-opacity ease-out duration-150"
-                leave-from-class="opacity-100"
-                leave-to-class="opacity-0"
-            >
-                <div
-                    v-show="SLabel_isOpen"
-                    class="absolute top-full left-0 z-20 mt-1 w-full rounded-md bg-white shadow-lg"
+            <Teleport to="body">
+                <transition
+                    enter-active-class="transition-opacity ease-out duration-150"
+                    enter-from-class="opacity-0"
+                    enter-to-class="opacity-100"
+                    leave-active-class="transition-opacity ease-out duration-150"
+                    leave-from-class="opacity-100"
+                    leave-to-class="opacity-0"
                 >
-                    <ul
-                        tabindex="-1"
-                        ref="SBox"
-                        role="listbox"
-                        :id="SListboxId"
-                        :aria-labelledby="`${id}-label`"
-                        class="bg-white dark:bg-slate-800 max-h-56 rounded-md py-1 text-base leading-6 overflow-auto focus:outline-none sm:text-sm sm:leading-5"
+                    <div
+                        v-show="SLabel_isOpen"
+                        class="fixed z-[70]"
+                        :style="listPos"
                     >
+                        <ul
+                            tabindex="-1"
+                            ref="SBox"
+                            role="listbox"
+                            :id="SListboxId"
+                            :aria-labelledby="`${id}-label`"
+                            class="scrollbar bg-[var(--c-card)] border border-[var(--c-border)] shadow-xl max-h-56 rounded-md py-1 text-base leading-6 overflow-auto focus:outline-none sm:text-sm sm:leading-5"
+                        >
                         <li
                             tabindex="-1"
                             @click="SelectItem(d)"
@@ -302,9 +337,9 @@ onUnmounted(closeDropdown);
                             :aria-selected="isSelected(d.value)"
                             v-for="(d, idx) in data"
                             :key="idx"
-                            class="select-none relative py-2 pl-3 pr-9 cursor-pointer text-indigo-600 hover:bg-indigo-600 hover:text-white dark:text-white"
+                            class="select-none relative py-2 pl-3 pr-9 cursor-pointer text-[var(--c-accent)] hover:bg-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
                             :class="{
-                                'bg-slate-100 dark:bg-slate-700':
+                                'bg-[var(--c-ghost-hover)]':
                                     SLabel_isOpen && idx === activeIndex,
                             }"
                         >
@@ -340,6 +375,7 @@ onUnmounted(closeDropdown);
                     </ul>
                 </div>
             </transition>
+            </Teleport>
         </div>
     </div>
 </template>

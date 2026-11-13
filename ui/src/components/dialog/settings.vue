@@ -343,7 +343,7 @@ onMounted(() => {
             @close="showModal = false"
         >
             <div>
-                <p class="text-black dark:text-white">Delete this config? This cannot be undone.</p>
+                <p class="text-[var(--c-text)]">Delete this config? This cannot be undone.</p>
                 <div class="space-y-1">
                     <Button
                         v-if="props.actionType !== 'add'"

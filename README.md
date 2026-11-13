@@ -27,6 +27,24 @@ cd src-tauri && cargo test # core tests
 
 On Linux, saving passwords needs a Secret Service (GNOME Keyring or KWallet).
 
+## Clipboard over SSH (OSC 52)
+
+Copy text from inside vim/micro straight to your system clipboard (paste it anywhere,
+including another FishTerm tab). FishTerm writes the clipboard; the remote can never read it.
+
+- **micro** ≥ 2.0.11 — works out of the box (yank as usual).
+- **neovim 0.10+** — enable the built-in OSC 52 provider:
+  ```lua
+  vim.g.clipboard = {
+    name = 'OSC 52',
+    copy = { ['+'] = require('vim.ui.clipboard.osc52').copy, ['*'] = require('vim.ui.clipboard.osc52').copy },
+    paste = { ['+'] = require('vim.ui.clipboard.osc52').paste, ['*'] = require('vim.ui.clipboard.osc52').paste },
+  }
+  ```
+- First use per session asks once (Allow / Deny). `Cmd+C` copies the visible selection,
+  `Cmd+V` pastes into the focused tab.
+
+
 ## Credits
 
 This repository is a fork of **[FishTerm](https://github.com/sirilerklab/FishTerm)** by [M-307](https://m307.dev), released under the MIT License. The original idea, UI design, Cloudflare Access flow and monitor design come from FishTerm.

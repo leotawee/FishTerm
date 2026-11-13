@@ -29,7 +29,7 @@ onMounted(() => {
 <template>
     <div class="col-span-12 mb-2">
         <label
-            class="block text-base font-medium text-gray-700 dark:text-white mb-2"
+            class="block text-base font-medium text-[var(--c-text)] mb-2"
             v-text="props.name"
         />
         <div class="flex items-center justify-center w-full">
@@ -37,7 +37,7 @@ onMounted(() => {
                 type="button"
                 @click="pick"
                 aria-label="Choose key file"
-                class="group flex flex-col w-full h-32 border-4 border-blue-200 dark:border-slate-500 dark:hover:bg-slate-900 border-dashed hover:bg-gray-100 hover:border-gray-300"
+                class="group flex flex-col w-full h-32 border-4 border-dashed border-[var(--c-border)] hover:bg-[var(--c-ghost-hover)]"
             >
                 <div class="flex flex-col items-center justify-center pt-7 w-full">
                     <p

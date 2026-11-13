@@ -5,7 +5,7 @@ const version = __APP_VERSION__;
 </script>
 
 <template>
-    <div class="text-center text-black dark:text-white space-y-3">
+    <div class="text-center text-[var(--c-text)] space-y-3">
         <div
             id="logo"
             class="space-y-3"

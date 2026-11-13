@@ -19,6 +19,10 @@ import {
     faHardDrive,
     faTimesCircle,
     faTimes,
+    faPalette,
+    faDesktop,
+    faSun,
+    faMoon,
 } from '@fortawesome/free-solid-svg-icons';
 import {faCloudflare} from '@fortawesome/free-brands-svg-icons';
 
@@ -72,6 +76,10 @@ library.add(
     faHardDrive,
     faTimesCircle,
     faTimes,
+    faPalette,
+    faDesktop,
+    faSun,
+    faMoon,
 );
 
 export default FontAwesomeIcon;

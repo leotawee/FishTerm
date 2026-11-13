@@ -5,6 +5,7 @@ See ADR-001.
 ### 1. Assets
 
 - SSH passwords and private-key passphrases
+- System clipboard (write-only via OSC 52; read refused)
 - Private key files (referenced by path, read by the Rust core only)
 - Cloudflare Access app tokens (JWT, grants tunnel access)
 - Host trust state (`~/.ssh/known_hosts`)
@@ -48,7 +49,7 @@ See ADR-001.
 | Malicious host header writes files outside config dir | T | Low | Med | CF tokens go to the keychain, keyed by a validated hostname. No path built from server data. |
 | Server-controlled login URL opens `file://`/custom scheme | E | Med | Med | Implemented (`cfaccess::validate_login_url`, tested): https only, host must equal the Access app domain, exact `/cdn-cgi/access/cli` path, default port, no fragment/userinfo. Rust opens it via the opener plugin; the webview has no open-URL capability. |
 | XSS in UI pivots to Rust commands | E | Low | High | Strict CSP (`default-src 'self'`, no `unsafe-eval`). Capabilities limit the webview to app commands. Every command validates its input (lengths, ids, port range). |
-| Terminal escape abuse (OSC 52 clipboard write, link spoof) | T | Med | Low | xterm.js defaults: no OSC 52 clipboard handler, and link activation goes through the same validated opener (https only, confirm dialog). |
+| Terminal escape abuse (OSC 52 clipboard, link spoof) | T | Med | Low | OSC 52 write is supported behind a one-time-per-session Allow prompt, payload capped ~100KB; the read/query form is never answered. Link activation goes through the same validated opener (https only, confirm dialog). |
 | Corrupt/hostile `hosts.json` crashes app or wipes data | D/T | Low | Med | Typed serde parse. On error: back up to `hosts.json.bak-<ts>`, surface the error, never overwrite silently. Atomic write (tmp + rename). |
 | Session data leaks to logs | I | Low | Med | `tracing` never logs channel data or secrets. Host/user logged at info only. |
 | Hung/slow server exhausts resources | D | Low | Low | Connect timeout of 10 s, keepalive, monitor polls skip while the previous poll is in flight. |

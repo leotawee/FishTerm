@@ -136,6 +136,11 @@ impl AppState {
         Ok(stats::diff(prev.map(|(s, _)| s), now, secs))
     }
 
+    /// Live session count for the quit/close guards (App.vue confirms before exit).
+    pub fn open_session_count(&self) -> usize {
+        self.sessions.lock().map(|s| s.len()).unwrap_or(0)
+    }
+
     pub fn decide(&self, prompt_id: Uuid, accept: bool) -> AppResult<()> {
         let tx = self
             .prompts
@@ -394,6 +399,12 @@ pub fn hostkey_decide(state: State<'_, AppState>, prompt_id: Uuid, accept: bool)
     logged(state.decide(prompt_id, accept))
 }
 
+/// Quit for real — the webview only calls this past the live-terminal confirm.
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,6 +624,16 @@ mod tests {
 
         s.write(id, "ls\r".into()).unwrap();
         assert!(matches!(rx.try_recv(), Ok(Cmd::Data(d)) if d == b"ls\r"));
+    }
+
+    #[test]
+    fn open_session_count_tracks_sessions() {
+        let (s, _mem, _d) = setup();
+        assert_eq!(s.open_session_count(), 0);
+        let id = Uuid::new_v4();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        s.sessions.lock().unwrap().insert(id, tx);
+        assert_eq!(s.open_session_count(), 1);
     }
 
     #[test]

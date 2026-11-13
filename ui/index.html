@@ -5,6 +5,15 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>FishTerm</title>
         <meta name="theme-color" content="#0f172a" />
+        <script>
+            // Apply the saved appearance before the app mounts (no flash).
+            try {
+                var t = localStorage.getItem('appearance.theme');
+                var dark =
+                    t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+                document.documentElement.classList.toggle('dark', dark);
+            } catch (e) {}
+        </script>
     </head>
     <body style="overflow: hidden">
         <div id="app"></div>

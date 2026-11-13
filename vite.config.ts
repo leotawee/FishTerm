@@ -9,8 +9,9 @@ export default defineConfig({
     plugins: [vue()],
     clearScreen: false,
     server: {port: 1420, strictPort: true},
-    // Tailwind v3 like upstream FishTerm; default theme, dark mode follows the OS.
-    css: {postcss: {plugins: [tailwindcss({content: ['ui/index.html', 'ui/src/**/*.{vue,ts}']})]}},
+    // Tailwind v3 like upstream FishTerm; default theme. Dark mode is class-driven so
+    // the user can override the OS preference (ui/src/appearance.ts owns the class).
+    css: {postcss: {plugins: [tailwindcss({content: ['ui/index.html', 'ui/src/**/*.{vue,ts}'], darkMode: 'class'})]}},
     define: {__APP_VERSION__: JSON.stringify(pkg.version)},
     build: {
         outDir: '../dist',

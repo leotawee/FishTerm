@@ -2,6 +2,9 @@
 import {nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue';
 import {Terminal} from '@xterm/xterm';
 import {FitAddon} from '@xterm/addon-fit';
+import {ask} from '@tauri-apps/plugin-dialog';
+import {writeText} from '@tauri-apps/plugin-clipboard-manager';
+import {getTermTheme} from '../appearance';
 
 import Button from '../components/Button.vue';
 import Dialog from '../components/Dialog.vue';
@@ -24,12 +27,52 @@ const props = defineProps<{host: HostView; active: boolean}>();
 const emit = defineEmits<{close: []}>();
 
 const term = new Terminal({
-    theme: {
-        background: '#0f172a',
-    },
+    theme: {...getTermTheme()},
     fontFamily: 'Fira Code, monospace',
 });
+
+// Re-theme live when the Appearance dialog changes the terminal color scheme.
+const applyTermTheme = () => {
+    term.options.theme = {...getTermTheme()};
+};
+addEventListener('appearance-changed', applyTermTheme);
+onBeforeUnmount(() => removeEventListener('appearance-changed', applyTermTheme));
 const fitAddon = new FitAddon();
+
+// OSC 52: the remote writes OUR clipboard (yank inside vim/micro over SSH).
+// Write-only by design — the query form ('?') is swallowed, never answered.
+// shortcut: Allow is remembered per session only; per-host memory if abuse shows up.
+let osc52Allowed: boolean | null = null;
+
+function decodeOsc52(b64: string): string {
+    const bin = atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
+    return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)));
+}
+
+term.parser.registerOscHandler(52, (data: string) => {
+    const b64 = data.slice(data.indexOf(';') + 1);
+    if (!b64 || b64 === '?' || b64.length > 100_000) return true;
+    try {
+        const text = decodeOsc52(b64);
+        if (osc52Allowed === null) {
+            ask('The remote host wants to set your clipboard. Allow?', {
+                title: 'Clipboard access',
+                okLabel: 'Allow',
+                cancelLabel: 'Deny',
+            })
+                .then(ok => {
+                    osc52Allowed = ok;
+                    if (ok) void writeText(text).catch(() => {});
+                })
+                .catch(() => {});
+        } else if (osc52Allowed) {
+            void writeText(text).catch(() => {});
+        }
+    } catch {
+        // malformed base64 — swallow it, keep the session alive
+    }
+    return true;
+});
 
 const termDiv = ref<HTMLDivElement | null>(null);
 const isShow = ref(false);
@@ -176,6 +219,18 @@ onMounted(async () => {
     term.loadAddon(fitAddon);
     if (termDiv.value) {
         term.open(termDiv.value);
+        // Cmd+C copies the visible selection (Cmd+V paste is handled by xterm itself).
+        termDiv.value?.addEventListener(
+            'keydown',
+            e => {
+                if (e.metaKey && !e.shiftKey && e.key === 'c' && term.hasSelection()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void writeText(term.getSelection()).catch(() => {});
+                }
+            },
+            true,
+        );
         observer.observe(termDiv.value);
     }
     fitAddon.fit();
@@ -246,7 +301,7 @@ onBeforeUnmount(() => {
                             v-if="isLoading"
                         >
                             <svg
-                                class="inline mr-2 w-8 h-8 text-gray-200 animate-spin dark:text-gray-600 fill-indigo-600"
+                                class="inline mr-2 w-8 h-8 text-gray-200 animate-spin dark:text-gray-600 fill-[var(--c-accent)]"
                                 viewBox="0 0 100 101"
                                 fill="none"
                                 xmlns="http://www.w3.org/2000/svg"
@@ -270,16 +325,16 @@ onBeforeUnmount(() => {
                             />
                         </div>
                         <div v-if="pageStep === 0">
-                            <h1 class="text-black dark:text-white"
+                            <h1 class="text-[var(--c-text)]"
                                 >Connecting to {{ props.host.username }}@{{ props.host.host }}...</h1
                             >
                             <p
-                                class="text-black dark:text-white text-xs mt-1"
+                                class="text-[var(--c-text)] text-xs mt-1"
                                 v-text="elapsedText"
                             />
                             <h4
                                 v-if="cfStatus"
-                                class="text-black dark:text-white text-sm mt-2"
+                                class="text-[var(--c-text)] text-sm mt-2"
                             >
                                 {{ CF_STATUS_TEXT[cfStatus] || cfStatus
                                 }}<template v-if="cfStatus === 'waiting'">
@@ -300,26 +355,26 @@ onBeforeUnmount(() => {
                         <template v-if="pageStep >= 3">
                             <template v-if="pageStep !== 6">
                                 <div v-if="pageStep === 3">
-                                    <h1 class="text-black dark:text-white">Authentication failed</h1>
-                                    <h4 class="text-black dark:text-white text-sm"
+                                    <h1 class="text-[var(--c-text)]">Authentication failed</h1>
+                                    <h4 class="text-[var(--c-text)] text-sm"
                                         >Please check your username, password or key.</h4
                                     >
                                 </div>
                                 <div v-if="pageStep === 4">
-                                    <h1 class="text-black dark:text-white">Timeout from server</h1>
-                                    <h4 class="text-black dark:text-white text-sm"
+                                    <h1 class="text-[var(--c-text)]">Timeout from server</h1>
+                                    <h4 class="text-[var(--c-text)] text-sm"
                                         >Please check that the host is on and reachable.</h4
                                     >
                                 </div>
                                 <div v-if="pageStep === 5">
-                                    <h1 class="text-black dark:text-white">Connection failed</h1>
-                                    <h4 class="text-black dark:text-white text-sm"
+                                    <h1 class="text-[var(--c-text)]">Connection failed</h1>
+                                    <h4 class="text-[var(--c-text)] text-sm"
                                         >Check the host, port and your network, then retry.</h4
                                     >
                                 </div>
                                 <h4
                                     v-if="errorText"
-                                    class="text-black dark:text-white text-xs break-words line-clamp-6"
+                                    class="text-[var(--c-text)] text-xs break-words line-clamp-6"
                                     role="alert"
                                     v-text="errorText"
                                 />
@@ -344,9 +399,9 @@ onBeforeUnmount(() => {
                                 v-else
                                 class="w-full bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800 rounded-md p-4 text-left"
                             >
-                                <h1 class="text-black dark:text-white font-bold">Host key changed</h1>
+                                <h1 class="text-[var(--c-text)] font-bold">Host key changed</h1>
                                 <p
-                                    class="text-black dark:text-white text-sm mt-2 break-words"
+                                    class="text-[var(--c-text)] text-sm mt-2 break-words"
                                     v-text="errorText"
                                 />
                                 <div class="flex space-x-2 mt-3">
@@ -373,7 +428,7 @@ onBeforeUnmount(() => {
             </div>
         </div>
         <div
-            class="py-1 sticky bottom-0 space-x-3 flex bg-gray-200 z-50 w-full dark:bg-slate-800 text-black dark:text-white justify-end pr-2"
+            class="py-1 sticky bottom-0 space-x-3 flex bg-gray-200 z-50 w-full dark:bg-slate-800 text-[var(--c-text)] justify-end pr-2"
         >
             <div
                 class="flex items-center space-x-1"
@@ -425,7 +480,7 @@ onBeforeUnmount(() => {
     >
         <div
             v-if="prompt"
-            class="space-y-3 text-black dark:text-white"
+            class="space-y-3 text-[var(--c-text)]"
         >
             <h1 class="text-xl font-bold">Unknown host key</h1>
             <p class="text-sm">

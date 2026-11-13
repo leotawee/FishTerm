@@ -2,7 +2,37 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Semantic theme tokens. Defaults = light; .dark overrides; Catppuccin UI themes
+   set these inline from ui/src/appearance.ts (appearance dialog). */
+:root {
+    --c-bg: #ffffff;
+    --c-card: #ffffff;
+    --c-text: #0f172a;
+    --c-muted: #64748b;
+    --c-accent: #4f46e5;
+    --c-accent-hover: #4338ca;
+    --c-accent-text: #ffffff;
+    --c-border: #d1d5db;
+    --c-ghost-hover: #f1f5f9;
+}
+
+.dark {
+    --c-bg: #121212;
+    --c-card: #2c2c2c;
+    --c-text: #e5e7eb;
+    --c-muted: #94a3b8;
+    --c-accent: #6366f1;
+    --c-accent-hover: #818cf8;
+    --c-accent-text: #ffffff;
+    --c-border: #475569;
+    --c-ghost-hover: #3f3f46;
+}
+
 @layer base {
+    body {
+        color: var(--c-text);
+    }
+
     .scrollbar::-webkit-scrollbar {
         width: 7px;
         height: 20px;
@@ -22,13 +52,12 @@
         background: #94a3b8;
     }
 
-    @media (prefers-color-scheme: dark) {
-        .scrollbar::-webkit-scrollbar-thumb {
-            background: #475569;
-        }
+    /* Class-driven dark (appearance.ts), not the OS media query. */
+    .dark .scrollbar::-webkit-scrollbar-thumb {
+        background: #475569;
+    }
 
-        .scrollbar::-webkit-scrollbar-thumb:hover {
-            background: #64748b;
-        }
+    .dark .scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
     }
 }

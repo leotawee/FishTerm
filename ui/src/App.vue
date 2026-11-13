@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import {nextTick, onMounted, reactive, ref, watch} from 'vue';
-import {startupWarnings, type HostView} from './api';
+import {listen} from '@tauri-apps/api/event';
+import {startupWarnings, quitApp, type HostView} from './api';
 
 import Home from './views/Home.vue';
 import SSH from './views/SSH.vue';
@@ -8,11 +9,13 @@ import SSH from './views/SSH.vue';
 import Dialog from './components/Dialog.vue';
 import Button from './components/Button.vue';
 import Info from './components/dialog/info.vue';
+import AppearanceDialog from './components/dialog/appearance.vue';
 
 const tabIndex = ref('home');
 const terminal: Record<string, {title: string; host: HostView}> = reactive({});
 
 const showModal = ref(false);
+const showAppearance = ref(false);
 const warnings = ref<string[]>([]);
 
 function openTerminal(host: HostView) {
@@ -39,8 +42,20 @@ function confirmCloseTerminal() {
     if (key) removeTerminal(key);
 }
 
+// Quit guard: the native menu / red close button ask Rust, which forwards here
+// only when terminals are live (see lib.rs on_menu_event).
+const quitConfirm = ref(false);
+
 onMounted(async () => {
     warnings.value = await startupWarnings().catch(() => []);
+    listen('close-active-tab', () => {
+        // Browser parity: Cmd+W closes the active tab, confirming live sessions.
+        if (tabIndex.value !== 'home') requestCloseTerminal(tabIndex.value);
+    });
+    listen('quit-requested', () => {
+        if (Object.keys(terminal).length > 0) quitConfirm.value = true;
+        else quitApp();
+    });
 });
 
 watch(tabIndex, (n: string) => {
@@ -53,7 +68,7 @@ watch(tabIndex, (n: string) => {
 
 <template>
     <div class="flex flex-col h-screen">
-        <nav class="flex mx-auto bg-gray-200 z-50 w-full dark:bg-slate-800 justify-between">
+        <nav class="flex mx-auto bg-gray-200 z-50 w-full dark:bg-[var(--c-card)] justify-between">
             <!-- Tabs scroll sideways instead of wrapping onto a second row on narrow windows. -->
             <div class="flex min-w-0 overflow-x-auto">
                 <button
@@ -64,8 +79,10 @@ watch(tabIndex, (n: string) => {
                 >
                     <div
                         :class="`bg-white py-1 ${
-                            tabIndex === 'home' ? 'pt-2 mt-1' : 'mt-2'
-                        } rounded-t-lg hover:bg-slate-100 dark:bg-white dark:hover:bg-slate-300`"
+                            tabIndex === 'home'
+                                ? 'pt-2 mt-1 dark:bg-[var(--c-card)] border-t-2 border-[var(--c-accent)] text-[var(--c-text)]'
+                                : 'mt-2 dark:bg-[var(--c-bg)] border-t-2 border-transparent text-[var(--c-muted)]'
+                        } rounded-t-lg hover:bg-slate-100 dark:hover:bg-[var(--c-card)]`"
                     >
                         <p class="ml-2 inline-flex items-center"> Home </p>
                     </div>
@@ -84,11 +101,16 @@ watch(tabIndex, (n: string) => {
                 >
                     <div
                         :class="`bg-white hover:bg-slate-100 ${
-                            tabIndex === key ? 'pt-2 mt-1' : 'mt-2'
-                        } py-1 rounded-t-lg dark:bg-white dark:hover:bg-slate-300`"
+                            tabIndex === key
+                                ? 'pt-2 mt-1 dark:bg-[var(--c-card)] border-t-2 border-[var(--c-accent)]'
+                                : 'mt-2 dark:bg-[var(--c-bg)] border-t-2 border-transparent'
+                        } py-1 rounded-t-lg dark:hover:bg-[var(--c-card)]`"
                     >
                         <div class="flex justify-between items-center">
-                            <p class="ml-2 min-w-0 flex-1 truncate">
+                            <p
+                                class="ml-2 min-w-0 flex-1 truncate"
+                                :class="tabIndex === key ? 'text-[var(--c-text)]' : 'text-[var(--c-muted)]'"
+                            >
                                 {{ terminal[key]?.title }}
                             </p>
                             <button
@@ -104,16 +126,29 @@ watch(tabIndex, (n: string) => {
                 </div>
             </div>
             <div class="flex items-center shrink-0 ml-3 mr-5">
-                <button @click="showModal = true">
+                <button
+                    aria-label="Appearance"
+                    class="mr-3"
+                    @click="showAppearance = true"
+                >
+                    <Icon
+                        icon="fas fa-palette"
+                        class="text-[var(--c-text)]"
+                    />
+                </button>
+                <button
+                    aria-label="About FishTerm"
+                    @click="showModal = true"
+                >
                     <Icon
                         icon="fas fa-info-circle"
-                        class="text-black dark:text-white"
+                        class="text-[var(--c-text)]"
                     />
                 </button>
             </div>
         </nav>
 
-        <main class="dark:bg-[#121212] flex-1 min-h-0">
+        <main class="dark:bg-[var(--c-bg)] flex-1 min-h-0">
             <div
                 :hidden="tabIndex !== 'home'"
                 class="h-full"
@@ -142,11 +177,18 @@ watch(tabIndex, (n: string) => {
         <Info />
     </Dialog>
     <Dialog
+        :show="showAppearance"
+        label="Appearance"
+        @close="showAppearance = false"
+    >
+        <AppearanceDialog />
+    </Dialog>
+    <Dialog
         :show="warnings.length > 0"
         label="Startup warning"
         @close="warnings = []"
     >
-        <div class="space-y-2 text-black dark:text-white">
+        <div class="space-y-2 text-[var(--c-text)]">
             <h1 class="text-xl font-bold">Warning</h1>
             <p
                 v-for="(w, i) in warnings"
@@ -161,7 +203,7 @@ watch(tabIndex, (n: string) => {
         label="Close terminal?"
         @close="closeTarget = null"
     >
-        <div class="space-y-2 text-black dark:text-white">
+        <div class="space-y-2 text-[var(--c-text)]">
             <h1 class="text-xl font-bold">Close terminal?</h1>
             <p class="text-sm">Close this terminal? The SSH session will end.</p>
             <div class="flex justify-end space-x-2 pt-2">
@@ -177,6 +219,34 @@ watch(tabIndex, (n: string) => {
                     @click="confirmCloseTerminal"
                 >
                     Close terminal
+                </Button>
+            </div>
+        </div>
+    </Dialog>
+    <Dialog
+        :show="quitConfirm"
+        label="Quit FishTerm?"
+        @close="quitConfirm = false"
+    >
+        <div class="space-y-2 text-[var(--c-text)]">
+            <h1 class="text-xl font-bold">Quit FishTerm?</h1>
+            <p class="text-sm">
+                There are {{ Object.keys(terminal).length }} open terminals. All SSH sessions will
+                end.
+            </p>
+            <div class="flex justify-end space-x-2 pt-2">
+                <Button
+                    type="button"
+                    @click="quitConfirm = false"
+                >
+                    Cancel
+                </Button>
+                <Button
+                    type="button"
+                    :class="`!bg-red-500 hover:!bg-red-600 active:!bg-red-600`"
+                    @click="quitApp"
+                >
+                    Quit
                 </Button>
             </div>
         </div>

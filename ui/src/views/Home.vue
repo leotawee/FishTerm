@@ -49,7 +49,7 @@ onMounted(loadHosts);
     <Container class="flex flex-col h-full">
         <div class="flex justify-between">
             <Title
-                class="text-black dark:text-white"
+                class="text-[var(--c-text)]"
                 title="SSH list"
             />
             <Button
@@ -75,7 +75,7 @@ onMounted(loadHosts);
         </div>
         <p
             v-if="!hosts.length && !loadError"
-            class="text-sm text-slate-500 dark:text-slate-400"
+            class="text-sm text-[var(--c-muted)]"
         >
             No saved hosts yet — click Add to create your first connection.
         </p>
@@ -85,7 +85,7 @@ onMounted(loadHosts);
                 :key="h.id"
             >
                 <template #default>
-                    <div class="text-slate-800 dark:text-white text-7xl flex items-center mx-6">
+                    <div class="text-[var(--c-text)] text-7xl flex items-center mx-6">
                         <img
                             v-if="isImageIcon(osIcon(h.os))"
                             :src="osIcon(h.os)"
@@ -99,11 +99,11 @@ onMounted(loadHosts);
                     </div>
                     <div class="text-left min-w-0">
                         <h1
-                            class="text-lg font-bold text-black dark:text-white break-words"
+                            class="text-lg font-bold text-[var(--c-text)] break-words"
                             v-text="h.name"
                         />
                         <h2
-                            class="text-indigo-500 min-w-0 truncate"
+                            class="text-[var(--c-accent)] min-w-0 truncate"
                             v-text="`${h.username}@${h.host}${h.port !== 22 ? `:${h.port}` : ''}`"
                         />
                         <span

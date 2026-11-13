@@ -30,7 +30,7 @@ function onInput(event: Event) {
             :value="props.modelValue"
             :placeholder="props.placeholder"
             :required="props.required"
-            class="mt-1 border-[1px] block w-full shadow-sm sm:text-sm border-gray-300 dark:border-slate-600 rounded-md px-3 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-800 dark:text-white focus:outline-none"
+            class="mt-1 border-[1px] block w-full shadow-sm sm:text-sm border-[var(--c-border)] rounded-md px-3 py-3 focus:ring-2 focus:ring-[var(--c-accent)] focus:border-[var(--c-accent)] bg-[var(--c-card)] text-[var(--c-text)] focus:outline-none"
         />
     </div>
 </template>

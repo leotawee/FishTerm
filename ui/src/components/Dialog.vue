@@ -106,12 +106,12 @@ export default defineComponent({
             enter-active-class="transition ease-out duration-200 transform"
             enter-from-class="opacity-0"
             enter-to-class="opacity-100"
-            leave-active-class="transition ease-in duration-200 transform"
+            leave-active-class="transition ease-out duration-150 transform"
             leave-from-class="opacity-100"
             leave-to-class="opacity-0"
         >
             <div
-                class="modal-backdrop fixed z-[60] bg-black w-full h-full bg-opacity-20 inset-0 max-h-screen"
+                class="modal-backdrop fixed z-[60] bg-black/60 w-full h-full inset-0 max-h-screen"
                 v-show="showModal"
             >
                 <div
@@ -120,15 +120,15 @@ export default defineComponent({
                 >
                     <transition
                         enter-active-class="transition ease-out duration-200 transform"
-                        enter-from-class="opacity-0 translate-y-10 scale-95"
+                        enter-from-class="opacity-0 translate-y-2 scale-95"
                         enter-to-class="opacity-100 translate-y-0 scale-100"
-                        leave-active-class="ease-in duration-200"
+                        leave-active-class="transition ease-out duration-150"
                         leave-from-class="opacity-100 translate-y-0 scale-100"
-                        leave-to-class="opacity-0 translate-y-10 translate-y-0 scale-95"
+                        leave-to-class="opacity-0 translate-y-2 scale-95"
                     >
                         <div
                             ref="panel"
-                            class="max-h-[calc(100vh-2rem)] overflow-y-auto relative bg-white dark:bg-[#121212] rounded-lg text-left shadow-xl p-8 w-[80%] lg:w-1/2 focus:outline-none"
+                            class="max-h-[calc(100vh-2rem)] overflow-y-auto relative bg-[var(--c-card)] rounded-lg text-left shadow-xl p-8 w-[80%] lg:w-1/2 focus:outline-none"
                             role="dialog"
                             aria-modal="true"
                             v-if="showModal"
@@ -143,7 +143,7 @@ export default defineComponent({
                             >
                                 <Icon
                                     icon="fas fa-times"
-                                    class="text-indigo-600 dark:text-white text-xl"
+                                    class="text-[var(--c-muted)] text-xl"
                                 />
                             </button>
                             <slot />

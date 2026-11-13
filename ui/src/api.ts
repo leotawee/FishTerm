@@ -103,3 +103,4 @@ export const sessionResize = (id: string, cols: number, rows: number) =>
 export const sessionClose = (id: string) => invoke<void>('session_close', {id});
 export const hostkeyDecide = (promptId: string, accept: boolean) =>
     invoke<void>('hostkey_decide', {promptId, accept});
+export const quitApp = () => invoke<void>('quit_app');
