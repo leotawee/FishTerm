@@ -456,7 +456,7 @@ onBeforeUnmount(() => {
             />
         </div>
         <div
-            class="py-1 sticky bottom-0 space-x-3 flex bg-gray-200 z-50 w-full dark:bg-slate-800 text-[var(--c-text)] justify-end pr-2"
+            class="py-1 sticky bottom-0 space-x-3 flex bg-[var(--c-card)] z-50 w-full text-[var(--c-text)] justify-end pr-2"
         >
             <Button
                 v-if="isShow"

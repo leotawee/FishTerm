@@ -157,7 +157,7 @@ watch(tabIndex, (n: string) => {
             </div>
         </nav>
 
-        <main class="dark:bg-[var(--c-bg)] flex-1 min-h-0">
+        <main class="bg-[var(--c-bg)] flex-1 min-h-0">
             <div
                 :hidden="tabIndex !== 'home'"
                 class="h-full"
