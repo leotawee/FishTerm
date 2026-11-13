@@ -29,6 +29,8 @@ export interface HostView {
     username: string;
     transport: Transport;
     os: Os;
+    /** Free-text list section; empty = ungrouped. */
+    group: string;
     auth: Auth;
     has_secret: boolean;
 }
@@ -41,6 +43,7 @@ export interface HostInput {
     username: string;
     transport: Transport;
     os: Os;
+    group?: string;
     auth: Auth;
 }
 
@@ -104,3 +107,5 @@ export const sessionClose = (id: string) => invoke<void>('session_close', {id});
 export const hostkeyDecide = (promptId: string, accept: boolean) =>
     invoke<void>('hostkey_decide', {promptId, accept});
 export const quitApp = () => invoke<void>('quit_app');
+/** Open a terminal link in the default browser (Rust allows http/https/mailto only). */
+export const urlOpen = (url: string) => invoke<void>('url_open', {url});

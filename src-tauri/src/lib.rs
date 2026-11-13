@@ -133,6 +133,7 @@ pub fn run() {
             commands::session_close,
             commands::session_stats,
             commands::hostkey_decide,
+            commands::url_open,
             commands::quit_app,
         ])
         .run(tauri::generate_context!())

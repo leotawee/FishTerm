@@ -405,6 +405,21 @@ pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+/// Open a terminal link (ctrl/cmd+click) in the default browser.
+/// WHY scheme allowlist: the webview is a trust boundary; never let it open
+/// `file://`, custom app schemes, or anything else via the opener plugin.
+#[tauri::command]
+pub fn url_open(app: AppHandle, url: String) -> AppResult<()> {
+    if !(url.starts_with("http://") || url.starts_with("https://") || url.starts_with("mailto:")) {
+        return Err(AppError::Invalid("only http, https, and mailto URLs can be opened"));
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener().open_url(url, None::<&str>).map_err(|e| {
+        tracing::warn!(error = ?e, "could not open URL");
+        AppError::Internal
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -450,6 +465,7 @@ mod tests {
             username: "leo".into(),
             transport: Transport::Direct,
             os: Os::Generic,
+            group: String::new(),
             auth: Auth::Password,
         }
     }

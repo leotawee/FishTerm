@@ -19,7 +19,7 @@ import Button from '../Button.vue';
 
 import Dialog from '../Dialog.vue';
 
-import {computed, onMounted, reactive, ref} from 'vue';
+import {computed, onMounted, reactive, ref, useId} from 'vue';
 
 const props = defineProps<{host: HostView | null; actionType: 'add' | 'edit'}>();
 const emit = defineEmits(['closePage', 'changed']);
@@ -57,8 +57,13 @@ const config = reactive({
             },
         },
         os: 'generic' as Os,
+        group: '',
     },
 });
+
+// Suggested sections; the field is free text, so anything else works too.
+const GROUP_PRESETS = ['Homelab', 'Network', 'Cloud', 'Work', 'IoT'];
+const groupPresetsId = useId();
 
 const selectAuthType = ref([
     {
@@ -135,6 +140,7 @@ async function updateSSH(e: Event) {
         username: config.data.connection.username.trim(),
         transport: isTunnel ? 'cloudflare_access' : 'direct',
         os: config.data.os,
+        group: config.data.group.trim(),
         auth: isKey ? {kind: 'key', path: previewPasswordData.value} : {kind: 'password'},
     };
 
@@ -200,6 +206,7 @@ onMounted(() => {
     config.data.connection.username = h.username;
     config.data.connection.password.type = h.auth.kind === 'key' ? 1 : 0;
     config.data.os = h.os;
+    config.data.group = h.group;
 
     previousConnectionType.value = config.data.connection.type;
     previewConnectionData.value = h.host;
@@ -270,6 +277,20 @@ onMounted(() => {
             name="Operating System"
             :data="selectOsType"
         />
+        <Text
+            v-model="config.data.group"
+            name="Group"
+            placeholder="Optional — e.g. Homelab"
+            :list="groupPresetsId"
+            maxlength="32"
+        />
+        <datalist :id="groupPresetsId">
+            <option
+                v-for="g in GROUP_PRESETS"
+                :key="g"
+                :value="g"
+            />
+        </datalist>
         <Select
             v-model="config.data.connection.password.type"
             @onChange="onUpdatePasswordSelect"

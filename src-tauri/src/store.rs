@@ -59,6 +59,9 @@ pub struct Host {
     /// Display hint for the home-screen card; never used by the SSH layer.
     #[serde(default)]
     pub os: Os,
+    /// Free-text list section (Homelab, Network, ...). Empty = ungrouped.
+    #[serde(default)]
+    pub group: String,
     pub auth: Auth,
     /// A password/passphrase is stored in the keychain for this host.
     pub has_secret: bool,
@@ -76,6 +79,8 @@ pub struct HostInput {
     pub transport: Transport,
     #[serde(default)]
     pub os: Os,
+    #[serde(default)]
+    pub group: String,
     pub auth: Auth,
 }
 
@@ -118,6 +123,9 @@ impl HostInput {
             return Err(AppError::Invalid(
                 "username must be 1-64 characters without spaces",
             ));
+        }
+        if self.group.chars().count() > 32 || has_control(&self.group) {
+            return Err(AppError::Invalid("group must be at most 32 printable characters"));
         }
         if let Auth::Key { path } = &self.auth {
             // Existence is checked at connect time; the file may live on a removable drive.
@@ -215,6 +223,7 @@ impl HostStore {
                     username: input.username,
                     transport: input.transport,
                     os: input.os,
+                    group: input.group.trim().to_owned(),
                     auth: input.auth,
                     has_secret: slot.has_secret && !invalidated,
                 };
@@ -229,6 +238,7 @@ impl HostStore {
                     username: input.username,
                     transport: input.transport,
                     os: input.os,
+                    group: input.group.trim().to_owned(),
                     auth: input.auth,
                     has_secret: false,
                 };
@@ -332,6 +342,7 @@ mod tests {
             username: "leo".into(),
             transport: Transport::Direct,
             os: Os::Generic,
+            group: String::new(),
             auth: Auth::Password,
         }
     }
@@ -499,6 +510,7 @@ mod tests {
             keys,
             [
                 "auth",
+                "group",
                 "has_secret",
                 "host",
                 "id",
@@ -509,5 +521,19 @@ mod tests {
                 "username"
             ]
         );
+    }
+
+    #[test]
+    fn group_is_optional_and_trimmed() {
+        let d = tempfile::tempdir().unwrap();
+        let mut i = input("pi");
+        i.group = "  Homelab  ".into();
+        let h = store_in(&d).upsert(i).unwrap().host;
+        assert_eq!(h.group, "Homelab");
+        // Older hosts.json files have no group key; it must load as empty.
+        let json = r#"{"id":"11111111-1111-1111-1111-111111111111","name":"old","host":"h",
+            "port":22,"username":"u","transport":"direct","os":"generic","auth":{"kind":"password"},"has_secret":false}"#;
+        let old: Host = serde_json::from_str(json).unwrap();
+        assert_eq!(old.group, "");
     }
 }

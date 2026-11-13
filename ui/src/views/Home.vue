@@ -9,11 +9,30 @@ import DialogVue from '../components/Dialog.vue';
 import SettingDialog from '../components/dialog/settings.vue';
 
 // Main
-import {onMounted, ref} from 'vue';
+import {computed, onMounted, ref} from 'vue';
 import {hostsList, errorOf, type HostView} from '../api';
 import {isImageIcon, osIcon} from '../osIcons';
 
 const emit = defineEmits<{connect: [host: HostView]}>();
+
+// Preset order first, custom groups alphabetical after, Ungrouped last.
+const GROUP_ORDER = ['Homelab', 'Network', 'Cloud', 'Work', 'IoT'];
+
+const groupedHosts = computed(() => {
+    const groups = new Map<string, HostView[]>();
+    for (const h of hosts.value) {
+        const g = h.group.trim();
+        const key = GROUP_ORDER.find(p => p.toLowerCase() === g.toLowerCase()) ?? g ?? '';
+        const list = groups.get(key) ?? [];
+        list.push(h);
+        groups.set(key, list);
+    }
+    return [...groups.entries()].sort(([a], [b]) => {
+        const rank = (k: string) =>
+            k === '' ? GROUP_ORDER.length + 1 : Math.max(GROUP_ORDER.indexOf(k) < 0 ? GROUP_ORDER.length : GROUP_ORDER.indexOf(k), 0);
+        return rank(a) - rank(b) || a.localeCompare(b);
+    });
+});
 
 const showModal = ref(false);
 const hosts = ref<HostView[]>([]);
@@ -80,10 +99,18 @@ onMounted(loadHosts);
             No saved hosts yet — click Add to create your first connection.
         </p>
         <div class="space-y-3 overflow-y-auto flex-1 min-h-0 my-7 pr-1 scrollbar">
-            <Card
-                v-for="h in hosts"
-                :key="h.id"
+            <template
+                v-for="[group, list] in groupedHosts"
+                :key="group || 'ungrouped'"
             >
+                <h2
+                    class="text-xs font-semibold uppercase tracking-wide text-[var(--c-muted)] pt-2"
+                    v-text="group || 'No group'"
+                />
+                <Card
+                    v-for="h in list"
+                    :key="h.id"
+                >
                 <template #default>
                     <div class="text-[var(--c-text)] text-7xl flex items-center mx-6">
                         <img
@@ -129,6 +156,7 @@ onMounted(loadHosts);
                     </div>
                 </template>
             </Card>
+            </template>
         </div>
     </Container>
     <DialogVue

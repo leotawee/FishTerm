@@ -2,6 +2,7 @@
 import {nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue';
 import {Terminal} from '@xterm/xterm';
 import {FitAddon} from '@xterm/addon-fit';
+import {WebLinksAddon} from '@xterm/addon-web-links';
 import {ask} from '@tauri-apps/plugin-dialog';
 import {writeText} from '@tauri-apps/plugin-clipboard-manager';
 import {getTermTheme} from '../appearance';
@@ -15,6 +16,7 @@ import {
     sessionClose,
     sessionStats,
     hostkeyDecide,
+    urlOpen,
     errorOf,
     type AppError,
     type HostKeyPrompt,
@@ -217,6 +219,8 @@ onMounted(async () => {
     // first resize overflow by a few rows once Fira Code arrived.
     await document.fonts.load('15px "Fira Code"').catch(() => {});
     term.loadAddon(fitAddon);
+    // Custom handler: xterm's default uses window.open, which Tauri's webview blocks.
+    term.loadAddon(new WebLinksAddon((_e, uri) => void urlOpen(uri).catch(() => {})));
     if (termDiv.value) {
         term.open(termDiv.value);
         // Cmd+C copies the visible selection (Cmd+V paste is handled by xterm itself).
