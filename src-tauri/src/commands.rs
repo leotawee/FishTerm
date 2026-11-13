@@ -30,6 +30,8 @@ pub struct AppState {
     warnings: Mutex<Vec<String>>,
     known_hosts: PathBuf,
     sessions: Mutex<HashMap<Uuid, mpsc::UnboundedSender<Cmd>>>,
+    /// Shared SSH handle per session so SFTP can open its own channels.
+    handles: Mutex<HashMap<Uuid, std::sync::Arc<ssh::SessionHandle<ssh::Client>>>>,
     /// Previous /proc snapshot per session, for CPU% and network-rate deltas.
     samples: Mutex<HashMap<Uuid, (Sample, Instant)>>,
     prompts: Mutex<HashMap<Uuid, oneshot::Sender<bool>>>,
@@ -48,6 +50,7 @@ impl AppState {
             warnings: Mutex::new(warnings),
             known_hosts,
             sessions: Mutex::new(HashMap::new()),
+            handles: Mutex::new(HashMap::new()),
             samples: Mutex::new(HashMap::new()),
             prompts: Mutex::new(HashMap::new()),
         }
@@ -343,20 +346,38 @@ async fn open_session(
 
     let (tx, rx) = mpsc::unbounded_channel();
     let sid = Uuid::new_v4();
-    app.state::<AppState>()
-        .sessions
-        .lock()
-        .map_err(|_| AppError::Internal)?
-        .insert(sid, tx);
+    {
+        let st = app.state::<AppState>();
+        st.sessions
+            .lock()
+            .map_err(|_| AppError::Internal)?
+            .insert(sid, tx);
+        st.handles
+            .lock()
+            .map_err(|_| AppError::Internal)?
+            .insert(sid, std::sync::Arc::new(handle));
+    }
     tracing::info!(session = %sid, %host_id, "session opened");
 
+    let handle_for_shell = app
+        .state::<AppState>()
+        .handles
+        .lock()
+        .map_err(|_| AppError::Internal)?
+        .get(&sid)
+        .cloned()
+        .ok_or(AppError::Internal)?;
     tauri::async_runtime::spawn(async move {
         let data = events.clone();
-        let result = ssh::run_shell(handle, cols, rows, rx, move |bytes| {
-            let _ = data.send(InvokeResponseBody::Raw(bytes));
-        })
-        .await;
+        let result =
+            ssh::run_shell(handle_for_shell, cols, rows, rx, move |bytes| {
+                let _ = data.send(InvokeResponseBody::Raw(bytes));
+            })
+            .await;
         if let Ok(mut s) = app.state::<AppState>().sessions.lock() {
+            s.remove(&sid);
+        }
+        if let Ok(mut s) = app.state::<AppState>().handles.lock() {
             s.remove(&sid);
         }
         if let Ok(mut s) = app.state::<AppState>().samples.lock() {

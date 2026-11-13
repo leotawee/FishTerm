@@ -3,6 +3,8 @@
 
 use crate::error::{AppError, AppResult};
 use russh::client::{self, Handle};
+// Re-export so other modules can name the shared-session type without a russh dep.
+pub use russh::client::Handle as SessionHandle;
 use russh::keys::known_hosts::{known_host_keys_path, learn_known_hosts_path};
 use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate};
 use russh::{ChannelMsg, Disconnect};
@@ -271,8 +273,10 @@ pub async fn run_capture(handle: &Handle<Client>, command: &str) -> AppResult<St
 }
 
 /// Open a PTY shell and pump data until either side closes. `out` gets raw terminal bytes.
+/// WHY Arc: SFTP and future channel users share this handle from other tasks;
+/// `Handle` itself is not `Clone` (it owns the reply receiver).
 pub async fn run_shell(
-    handle: Handle<Client>,
+    handle: std::sync::Arc<Handle<Client>>,
     cols: u32,
     rows: u32,
     mut cmds: mpsc::UnboundedReceiver<Cmd>,
@@ -290,7 +294,7 @@ pub async fn run_shell(
                 Some(Cmd::Resize { cols, rows }) => if let Err(e) = ch.window_change(cols, rows, 0, 0).await { break Err(e.into()) },
                 Some(Cmd::Exec { command, reply }) => {
                     // Inline await: the shell PTY buffers briefly (channel windowing) while
-                    // the exec runs; Handle is not Clone so it cannot move to another task.
+                    // the exec runs on a separate channel of the shared handle.
                     let _ = reply.send(run_capture(&handle, &command).await);
                 }
                 Some(Cmd::Close) | None => break Ok(()),
@@ -480,7 +484,7 @@ mod tests {
 
         let (tx, rx) = mpsc::unbounded_channel();
         let (out_tx, mut out_rx) = mpsc::unbounded_channel();
-        let pump = tokio::spawn(run_shell(handle, 80, 24, rx, move |b| {
+        let pump = tokio::spawn(run_shell(std::sync::Arc::new(handle), 80, 24, rx, move |b| {
             let _ = out_tx.send(b);
         }));
         tx.send(Cmd::Data(b"ping".to_vec())).unwrap();

@@ -1196,7 +1196,7 @@ mod tests {
             .unwrap();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel();
-        let pump = tokio::spawn(crate::ssh::run_shell(handle, 80, 24, rx, move |b| {
+        let pump = tokio::spawn(crate::ssh::run_shell(handle.into(), 80, 24, rx, move |b| {
             let _ = out_tx.send(b);
         }));
         tx.send(crate::ssh::Cmd::Data(b"ping\n".to_vec())).unwrap();
