@@ -8,6 +8,7 @@ import SSH from './views/SSH.vue';
 
 import Dialog from './components/Dialog.vue';
 import Button from './components/Button.vue';
+import FishTermLogo from './components/FishTermLogo.vue';
 import Info from './components/dialog/info.vue';
 import AppearanceDialog from './components/dialog/appearance.vue';
 
@@ -78,17 +79,12 @@ watch(tabIndex, (n: string) => {
                 class="h-7"
             />
             <div class="flex items-center gap-1.5 px-2 pb-1.5 min-w-0">
-                <!-- Product mark: accent fish + wordmark in ink; survives both themes. -->
+                <!-- Product mark: the real FishTerm wordmark, theme-aware. -->
                 <div
                     data-tauri-drag-region
-                    class="flex items-center gap-1.5 shrink-0 mr-1"
+                    class="flex items-center shrink-0 mr-1"
                 >
-                    <Icon
-                        icon="fas fa-fish"
-                        class="text-[var(--c-accent)]"
-                        aria-hidden="true"
-                    />
-                    <span class="text-sm font-semibold text-[var(--c-text)]">FishTerm</span>
+                    <FishTermLogo />
                 </div>
                 <!-- Tabs scroll sideways instead of wrapping onto a second row on narrow windows. -->
                 <div class="flex items-center gap-1.5 min-w-0 overflow-x-auto flex-1">
