@@ -8,6 +8,7 @@ import {
     type HostView,
     type HostInput,
     type Os,
+    type PortForward,
 } from '../../api';
 import {osIcon} from '../../osIcons';
 
@@ -58,6 +59,7 @@ const config = reactive({
         },
         os: 'generic' as Os,
         group: '',
+        forwards: [] as PortForward[],
     },
 });
 
@@ -141,6 +143,7 @@ async function updateSSH(e: Event) {
         transport: isTunnel ? 'cloudflare_access' : 'direct',
         os: config.data.os,
         group: config.data.group.trim(),
+        forwards: config.data.forwards,
         auth: isKey ? {kind: 'key', path: previewPasswordData.value} : {kind: 'password'},
     };
 
@@ -207,6 +210,7 @@ onMounted(() => {
     config.data.connection.password.type = h.auth.kind === 'key' ? 1 : 0;
     config.data.os = h.os;
     config.data.group = h.group;
+    config.data.forwards = h.forwards.map(f => ({...f}));
 
     previousConnectionType.value = config.data.connection.type;
     previewConnectionData.value = h.host;
@@ -291,6 +295,66 @@ onMounted(() => {
                 :value="g"
             />
         </datalist>
+
+        <!-- Local port forwards (ssh -L), active while a session is open -->
+        <div class="space-y-2">
+            <p class="block text-base font-medium text-gray-700 dark:text-white mb-0">
+                Port forwards (optional)
+            </p>
+            <p class="text-xs text-[var(--c-muted)] -mt-1">
+                Forwards <code>127.0.0.1:local → remote_host:remote_port</code> while the session is open.
+            </p>
+            <div
+                v-for="(f, i) in config.data.forwards"
+                :key="i"
+                class="flex items-center gap-2"
+            >
+                <input
+                    v-model.number="f.local_port"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    placeholder="8080"
+                    required
+                    class="w-24 border-[1px] rounded-md px-2 py-2 text-sm border-[var(--c-border)] bg-[var(--c-card)] text-[var(--c-text)] focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
+                />
+                <span class="text-[var(--c-muted)]">→</span>
+                <input
+                    v-model="f.remote_host"
+                    placeholder="localhost"
+                    maxlength="253"
+                    required
+                    class="flex-1 border-[1px] rounded-md px-2 py-2 text-sm border-[var(--c-border)] bg-[var(--c-card)] text-[var(--c-text)] focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
+                />
+                <input
+                    v-model.number="f.remote_port"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    placeholder="80"
+                    required
+                    class="w-24 border-[1px] rounded-md px-2 py-2 text-sm border-[var(--c-border)] bg-[var(--c-card)] text-[var(--c-text)] focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
+                />
+                <Button
+                    type="button"
+                    variant="ghost"
+                    class="!px-2"
+                    :aria-label="`Remove forward ${i + 1}`"
+                    @click="config.data.forwards.splice(i, 1)"
+                >
+                    <Icon icon="fas fa-trash" />
+                </Button>
+            </div>
+            <Button
+                v-if="config.data.forwards.length < 16"
+                type="button"
+                variant="ghost"
+                @click="config.data.forwards.push({local_port: 0, remote_host: 'localhost', remote_port: 80})"
+            >
+                <Icon icon="fas fa-plus" />
+                Add forward
+            </Button>
+        </div>
         <Select
             v-model="config.data.connection.password.type"
             @onChange="onUpdatePasswordSelect"

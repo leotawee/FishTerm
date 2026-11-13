@@ -40,8 +40,25 @@ Browse the remote filesystem of a connected SSH host and transfer files
 | T1 `sftp-t1-arc-handle` | — | `Arc<Handle>` session restructure, behavior unchanged |
 | T2 `sftp-t2-backend` | T1 | `sftp.rs` + IPC commands `sftp_ls/sftp_download/sftp_upload`, unit tests for pure logic |
 | T3 `sftp-t3-ui` | T2 | Files dialog in `SSH.vue`, listing + transfer with progress |
+| T4 `pf-t4-local-forward` | — | Local port forwarding (`-L`): per-host rules, listeners live with the session |
 
 ## Out of scope
 
 Delete/rename/mkdir remote operations, drag-and-drop, concurrent transfers,
 recursive directory transfer, remote-forward local browsing.
+
+## Ticket T4: local port forwarding
+
+Termius reference (REA + strings, 2026-11-14): rule entity
+`{pf_type: local|remote|dynamic, bound_address: "127.0.0.1", local_port, host,
+remote_port, status}`. FishTerm implements only `pf_type=local` (`ssh -L`).
+
+- `Host.forwards: Vec<PortForward>` (`local_port`, `remote_host`, `remote_port`),
+  `#[serde(default)]`, max 16, no duplicate local ports.
+- On `session_open`, one `TcpListener` per rule on `127.0.0.1`; each accepted
+  connection opens a `direct-tcpip` channel and `copy_bidirectional`.
+- Listeners abort when the session ends (remote close, user close, or app quit)
+  — forwarding is tied to the live session like OpenSSH without `-f`.
+- Bind failures (port taken) log a warning and skip that rule; the session
+  itself is unaffected.
+

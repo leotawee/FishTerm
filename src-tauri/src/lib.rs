@@ -4,6 +4,7 @@ mod cfaccess;
 mod commands;
 mod error;
 mod secrets;
+mod forward;
 mod ssh;
 mod sftp;
 mod stats;

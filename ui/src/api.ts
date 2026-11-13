@@ -31,8 +31,16 @@ export interface HostView {
     os: Os;
     /** Free-text list section; empty = ungrouped. */
     group: string;
+    forwards: PortForward[];
     auth: Auth;
     has_secret: boolean;
+}
+
+/** Local forward (`ssh -L`), active while a session is open. */
+export interface PortForward {
+    local_port: number;
+    remote_host: string;
+    remote_port: number;
 }
 
 export interface HostInput {
@@ -44,6 +52,7 @@ export interface HostInput {
     transport: Transport;
     os: Os;
     group?: string;
+    forwards?: PortForward[];
     auth: Auth;
 }
 
@@ -88,6 +97,8 @@ export type SessionEvent =
     | {type: 'hostkey'; prompt_id: string; prompt: HostKeyPrompt}
     /** Cloudflare Access progress before the session id exists. */
     | {type: 'cf-login'; status: 'probe' | 'cache' | 'browser' | 'waiting' | 'token' | 'connecting'; attempt: number}
+    /** A forward channel could not be opened on the server. */
+    | {type: 'forward-error'; local_port: number}
     | {type: 'closed'; error: AppError | null};
 
 /** Raw `ArrayBuffer` messages are terminal output; objects are control events. */
