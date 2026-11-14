@@ -3,7 +3,7 @@
 // native dialogs; remote paths come from the listing itself.
 import {computed, onMounted, ref} from 'vue';
 import {save, open} from '@tauri-apps/plugin-dialog';
-import {errorOf, sftpDownload, sftpLs, sftpUpload, type SftpEntry, type SftpProgress} from '../../api';
+import {errorOf, sftpDownload, sftpLs, sftpPreview, sftpUpload, type SftpEntry, type SftpProgress} from '../../api';
 
 import Button from '../Button.vue';
 
@@ -84,6 +84,19 @@ async function download(e: SftpEntry) {
     busy.value = true;
     try {
         await sftpDownload(props.sessionId, e.path, dest, addTransfer(e.name));
+    } catch (err) {
+        error.value = errorOf(err).message;
+    } finally {
+        busy.value = false;
+    }
+}
+
+async function preview(e: SftpEntry) {
+    if (busy.value) return;
+    error.value = '';
+    busy.value = true;
+    try {
+        await sftpPreview(props.sessionId, e.path, addTransfer(e.name));
     } catch (err) {
         error.value = errorOf(err).message;
     } finally {
@@ -241,6 +254,18 @@ onMounted(() => ls(''));
                                 /> {{ e.name }}
                             </button>
                         </td>
+                        <td class="px-2 py-1 text-right whitespace-nowrap">
+                            <button
+                                v-if="!e.is_dir"
+                                class="text-[var(--c-muted)] hover:text-[var(--c-accent)] disabled:opacity-50 px-1"
+                                :disabled="busy"
+                                :aria-label="`Preview ${e.name}`"
+                                title="Preview (Quick Look)"
+                                @click="preview(e)"
+                            >
+                                <Icon icon="fas fa-eye" />
+                            </button>
+                        </td>
                         <td
                             class="px-2 py-1 text-right text-[var(--c-muted)] whitespace-nowrap"
                             v-text="e.is_dir ? 'dir' : fmtSize(e.size)"
@@ -254,7 +279,13 @@ onMounted(() => ls(''));
             </table>
         </div>
         <p class="text-xs text-[var(--c-muted)] mt-2">
-            Click a folder to open it, a file to download it. Uploads go to the folder you are in.
+            Click a folder to open it · click a file to download it ·
+            <Icon
+                icon="fas fa-eye"
+                class="text-[var(--c-muted)]"
+            />
+            previews a file in macOS Quick Look (copied to a temp folder first) ·
+            uploads go to the folder you are in.
         </p>
     </div>
 </template>

@@ -195,6 +195,52 @@ pub async fn sftp_upload(
     Ok(n)
 }
 
+#[tauri::command]
+pub async fn sftp_preview(
+    state: State<'_, AppState>,
+    id: uuid::Uuid,
+    remote_path: String,
+    progress: Channel<SftpProgress>,
+) -> AppResult<()> {
+    check_remote_path(&remote_path)?;
+    let sftp = sftp_for(&state, id).await?;
+    let total = sftp
+        .metadata(&remote_path)
+        .await
+        .map_err(|_| AppError::Ssh)?
+        .len();
+    let mut remote = sftp.open(&remote_path).await.map_err(|_| AppError::Ssh)?;
+
+    // The only local path Quick Look ever sees is one we wrote ourselves in the
+    // app's preview dir — the webview cannot aim it at arbitrary local files.
+    let dir = std::env::temp_dir().join("fishterm-preview");
+    tokio::fs::create_dir_all(&dir).await.map_err(AppError::Io)?;
+    let name = remote_path.rsplit('/').next().unwrap_or("preview");
+    let local_path = dir.join(name);
+    let local = tokio::fs::File::create(&local_path).await.map_err(AppError::Io)?;
+
+    copy_with_progress(&mut remote, local, total, progress).await?;
+
+    // macOS-native preview (Finder's Quick Look). Detached: it outlives the command.
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("qlmanage")
+            .args(["-p"])
+            .arg(&local_path)
+            .spawn()
+            .map_err(|e| {
+                tracing::warn!(error = ?e, "could not launch Quick Look");
+                AppError::Internal
+            })?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        tracing::warn!("file preview is implemented on macOS only");
+        return Err(AppError::Invalid("file preview requires macOS"));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

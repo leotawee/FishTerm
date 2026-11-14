@@ -149,6 +149,7 @@ pub fn run() {
             sftp::sftp_ls,
             sftp::sftp_download,
             sftp::sftp_upload,
+            sftp::sftp_preview,
             commands::quit_app,
         ])
         .run(tauri::generate_context!())

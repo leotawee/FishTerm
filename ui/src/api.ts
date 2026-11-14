@@ -150,3 +150,8 @@ export const sftpUpload = (id: string, localPath: string, remotePath: string, on
     const progress = new Channel<SftpProgress>(onProgress);
     return invoke<number>('sftp_upload', {id, localPath, remotePath, progress});
 };
+/** Download to an app temp copy and open it in macOS Quick Look. */
+export const sftpPreview = (id: string, remotePath: string, onProgress: (p: SftpProgress) => void) => {
+    const progress = new Channel<SftpProgress>(onProgress);
+    return invoke<void>('sftp_preview', {id, remotePath, progress});
+};
