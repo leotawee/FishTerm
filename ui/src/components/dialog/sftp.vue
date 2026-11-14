@@ -127,21 +127,16 @@ onMounted(() => ls(''));
 <template>
     <div class="text-left">
         <div class="flex items-center justify-between mb-2">
-            <h1 class="text-xl font-bold text-[var(--c-text)]">Files</h1>
-            <!-- Close lives in the dialog corner (Dialog.vue's X); no second close here. -->
-            <Button
-                type="button"
-                variant="ghost"
-                :disabled="busy"
-                @click="upload"
+            <!-- Title row keeps clear of the dialog's corner X. -->
+            <h1
+                class="text-xl font-bold text-[var(--c-text)] pr-10"
+                >Files</h1
             >
-                <Icon icon="fas fa-arrow-up" />
-                Upload
-            </Button>
         </div>
 
-        <!-- Breadcrumb -->
-        <div class="flex items-center flex-wrap gap-1 text-sm text-[var(--c-text)] mb-2 min-h-6">
+        <!-- Breadcrumb + actions row: Upload sits here, one row below the X. -->
+        <div class="flex items-center justify-between gap-2 mb-2">
+            <div class="flex items-center flex-wrap gap-1 text-sm text-[var(--c-text)] min-w-0">
             <button
                 class="hover:underline text-[var(--c-accent)]"
                 @click="ls('')"
@@ -158,6 +153,18 @@ onMounted(() => ls(''));
                     v-text="c.name"
                 />
             </template>
+            </div>
+            <Button
+                type="button"
+                variant="ghost"
+                class="shrink-0"
+                :disabled="busy"
+                title="Upload into the folder you are in"
+                @click="upload"
+            >
+                <Icon icon="fas fa-arrow-up" />
+                Upload
+            </Button>
         </div>
 
         <p
