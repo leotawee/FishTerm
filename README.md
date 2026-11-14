@@ -13,7 +13,9 @@
 | Remote SSH | ✅ host key **not** verified | ✅ `russh`, strict `~/.ssh/known_hosts`, password / key + passphrase |
 | Cloudflare Access SSH | ✅ | ✅ token-transfer login in Rust, token in keychain, SSH over the WSS tunnel with strict host-key check |
 | Monitor (CPU, RAM, disk, net) | ✅ | ✅ live via SSH exec (Linux hosts, others show `--`) |
-| SFTP, X11, port forwarding | ❌ | ❌ |
+| SFTP | ❌ | ✅ file browser tied to the session |
+| Port forwarding | ❌ | ✅ local forwards (`-L`) tied to the session |
+| X11 | ❌ | ❌ (webview cannot render X11 apps) |
 
 ## Develop
 

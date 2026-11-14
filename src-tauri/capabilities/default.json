@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Main window: app commands, event listening, and the open-file dialog (key file path). No fs, shell, or opener access.",
   "windows": ["main"],
-  "permissions": ["core:event:default", "dialog:allow-open", "dialog:allow-ask", "clipboard-manager:allow-write-text"]
+  "permissions": ["core:event:default", "dialog:allow-open", "dialog:allow-ask", "dialog:allow-save", "clipboard-manager:allow-write-text", "core:window:allow-start-dragging"]
 }

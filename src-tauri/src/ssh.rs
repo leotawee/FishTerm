@@ -3,6 +3,8 @@
 
 use crate::error::{AppError, AppResult};
 use russh::client::{self, Handle};
+// Re-export so other modules can name the shared-session type without a russh dep.
+pub use russh::client::Handle as SessionHandle;
 use russh::keys::known_hosts::{known_host_keys_path, learn_known_hosts_path};
 use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate};
 use russh::{ChannelMsg, Disconnect};
@@ -271,8 +273,10 @@ pub async fn run_capture(handle: &Handle<Client>, command: &str) -> AppResult<St
 }
 
 /// Open a PTY shell and pump data until either side closes. `out` gets raw terminal bytes.
+/// WHY Arc: SFTP and future channel users share this handle from other tasks;
+/// `Handle` itself is not `Clone` (it owns the reply receiver).
 pub async fn run_shell(
-    handle: Handle<Client>,
+    handle: std::sync::Arc<Handle<Client>>,
     cols: u32,
     rows: u32,
     mut cmds: mpsc::UnboundedReceiver<Cmd>,
@@ -290,7 +294,7 @@ pub async fn run_shell(
                 Some(Cmd::Resize { cols, rows }) => if let Err(e) = ch.window_change(cols, rows, 0, 0).await { break Err(e.into()) },
                 Some(Cmd::Exec { command, reply }) => {
                     // Inline await: the shell PTY buffers briefly (channel windowing) while
-                    // the exec runs; Handle is not Clone so it cannot move to another task.
+                    // the exec runs on a separate channel of the shared handle.
                     let _ = reply.send(run_capture(&handle, &command).await);
                 }
                 Some(Cmd::Close) | None => break Ok(()),
@@ -307,9 +311,19 @@ pub async fn run_shell(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use russh::keys::decode_secret_key;
+
+    /// In-process SSH server + authenticated handle, for other modules' tests.
+    pub(crate) async fn test_handle(d: &tempfile::TempDir) -> Handle<Client> {
+        let kh = d.path().join(".ssh/known_hosts");
+        let port = serve_once(HOST_A).await;
+        // TOFU: answer the first-use prompt, like the interactive flow does.
+        connect(target(port, "right", &kh), answer(true))
+            .await
+            .unwrap()
+    }
     use russh::server::{self, Auth, Msg, Session};
     use russh::{Channel, ChannelId};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -354,6 +368,21 @@ mod tests {
             s: &mut Session,
         ) -> Result<(), Self::Error> {
             s.data(ch, data.to_vec())?;
+            Ok(())
+        }
+        // Accept direct-tcpip so the forward listener has a peer to talk to;
+        // the global `data` echo above stands in for the remote target.
+        async fn channel_open_direct_tcpip(
+            &mut self,
+            _channel: Channel<Msg>,
+            _host: &str,
+            _port: u32,
+            _originator: &str,
+            _originator_port: u32,
+            reply: server::ChannelOpenHandle,
+            _s: &mut Session,
+        ) -> Result<(), Self::Error> {
+            reply.accept().await;
             Ok(())
         }
     }
@@ -480,7 +509,7 @@ mod tests {
 
         let (tx, rx) = mpsc::unbounded_channel();
         let (out_tx, mut out_rx) = mpsc::unbounded_channel();
-        let pump = tokio::spawn(run_shell(handle, 80, 24, rx, move |b| {
+        let pump = tokio::spawn(run_shell(std::sync::Arc::new(handle), 80, 24, rx, move |b| {
             let _ = out_tx.send(b);
         }));
         tx.send(Cmd::Data(b"ping".to_vec())).unwrap();
@@ -531,5 +560,39 @@ mod tests {
         assert!(
             matches!(load_key(&d.path().join("missing"), None), Err(AppError::Invalid(m)) if m.contains("not found"))
         );
+    }
+
+    #[tokio::test]
+    async fn local_forward_pipes_bytes_end_to_end() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let d = tempfile::tempdir().unwrap();
+        let kh = d.path().join(".ssh/known_hosts");
+        let port = serve_once(HOST_A).await;
+        let handle = Arc::new(connect(target(port, "right", &kh), answer(true)).await.unwrap());
+
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let local_port = listener.local_addr().unwrap().port();
+        let progress = tauri::ipc::Channel::new(|_| Ok(()));
+        let fw = tokio::spawn(crate::forward::run_listener(
+            handle,
+            crate::store::PortForward {
+                local_port,
+                remote_host: "db.internal".into(),
+                remote_port: 5432,
+            },
+            progress,
+            listener,
+        ));
+
+        let mut tcp = tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, local_port))
+            .await
+            .unwrap();
+        tcp.write_all(b"ping").await.unwrap();
+        let mut buf = [0u8; 4];
+        tcp.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"ping");
+        fw.abort();
     }
 }

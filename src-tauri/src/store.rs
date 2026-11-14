@@ -46,6 +46,16 @@ pub enum Auth {
     },
 }
 
+/// Local port forwarding rule (`ssh -L`). `bound_address` is always 127.0.0.1.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+pub struct PortForward {
+    pub local_port: u16,
+    pub remote_host: String,
+    pub remote_port: u16,
+}
+
+pub const MAX_FORWARDS: usize = 16;
+
 /// Stored on disk and sent to the webview as-is.
 /// WHY: one type with no secret field means a secret cannot leak through it by accident.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
@@ -62,6 +72,9 @@ pub struct Host {
     /// Free-text list section (Homelab, Network, ...). Empty = ungrouped.
     #[serde(default)]
     pub group: String,
+    /// Local forwards active while a session to this host is open.
+    #[serde(default)]
+    pub forwards: Vec<PortForward>,
     pub auth: Auth,
     /// A password/passphrase is stored in the keychain for this host.
     pub has_secret: bool,
@@ -81,6 +94,8 @@ pub struct HostInput {
     pub os: Os,
     #[serde(default)]
     pub group: String,
+    #[serde(default)]
+    pub forwards: Vec<PortForward>,
     pub auth: Auth,
 }
 
@@ -126,6 +141,30 @@ impl HostInput {
         }
         if self.group.chars().count() > 32 || has_control(&self.group) {
             return Err(AppError::Invalid("group must be at most 32 printable characters"));
+        }
+        if self.forwards.len() > MAX_FORWARDS {
+            return Err(AppError::Invalid("at most 16 port forwards per host"));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for f in &self.forwards {
+            if f.local_port == 0 {
+                return Err(AppError::Invalid("forward local_port must be 1-65535"));
+            }
+            if f.remote_port == 0 {
+                return Err(AppError::Invalid("forward remote_port must be 1-65535"));
+            }
+            let host_ok = !f.remote_host.is_empty()
+                && f.remote_host.len() <= 253
+                && f
+                    .remote_host
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':'));
+            if !host_ok {
+                return Err(AppError::Invalid("forward remote_host must be a hostname or IP address"));
+            }
+            if !seen.insert(f.local_port) {
+                return Err(AppError::Invalid("each forward needs a distinct local port"));
+            }
         }
         if let Auth::Key { path } = &self.auth {
             // Existence is checked at connect time; the file may live on a removable drive.
@@ -224,6 +263,7 @@ impl HostStore {
                     transport: input.transport,
                     os: input.os,
                     group: input.group.trim().to_owned(),
+                    forwards: input.forwards,
                     auth: input.auth,
                     has_secret: slot.has_secret && !invalidated,
                 };
@@ -239,6 +279,7 @@ impl HostStore {
                     transport: input.transport,
                     os: input.os,
                     group: input.group.trim().to_owned(),
+                    forwards: input.forwards,
                     auth: input.auth,
                     has_secret: false,
                 };
@@ -343,6 +384,7 @@ mod tests {
             transport: Transport::Direct,
             os: Os::Generic,
             group: String::new(),
+            forwards: Vec::new(),
             auth: Auth::Password,
         }
     }
@@ -480,6 +522,32 @@ mod tests {
                     path: "id_rsa".into(),
                 }
             }),
+            ("forward zero local port", |i| {
+                i.forwards = vec![PortForward {
+                    local_port: 0,
+                    remote_host: "db".into(),
+                    remote_port: 5432,
+                }]
+            }),
+            ("forward bad remote host", |i| {
+                i.forwards = vec![PortForward {
+                    local_port: 5432,
+                    remote_host: "u@db".into(),
+                    remote_port: 5432,
+                }]
+            }),
+            ("forward duplicate local port", |i| {
+                let f = PortForward {
+                    local_port: 5432,
+                    remote_host: "db".into(),
+                    remote_port: 5432,
+                };
+                i.forwards = vec![f.clone(), PortForward {
+                    local_port: 5432,
+                    remote_host: "db2".into(),
+                    remote_port: 3306,
+                }];
+            }),
         ];
         for (label, mutate) in cases {
             let mut i = input("ok");
@@ -510,6 +578,7 @@ mod tests {
             keys,
             [
                 "auth",
+                "forwards",
                 "group",
                 "has_secret",
                 "host",

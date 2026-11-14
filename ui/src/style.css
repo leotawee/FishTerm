@@ -61,3 +61,15 @@
         background: #64748b;
     }
 }
+
+@layer components {
+    /* WHY: Tailwind drops `bg-[var(--x)]/60` opacity modifiers on plain CSS vars,
+       so the acrylic ground is a real class using color-mix (WKWebView 16.2+). */
+    .nav-acrylic {
+        background: color-mix(in srgb, var(--c-bg) 72%, transparent);
+    }
+
+    .dark .nav-acrylic {
+        background: color-mix(in srgb, var(--c-card) 72%, transparent);
+    }
+}

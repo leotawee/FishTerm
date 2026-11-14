@@ -4,10 +4,12 @@ import {
     hostSave,
     hostSetSecret,
     hostDelete,
+    hostsList,
     errorOf,
     type HostView,
     type HostInput,
     type Os,
+    type PortForward,
 } from '../../api';
 import {osIcon} from '../../osIcons';
 
@@ -58,12 +60,47 @@ const config = reactive({
         },
         os: 'generic' as Os,
         group: '',
+        forwards: [] as PortForward[],
     },
 });
 
-// Suggested sections; the field is free text, so anything else works too.
+// Suggested sections; groups already saved on hosts join the list with their
+// canonical casing, so "homelab" can never fork into "Homelab" and "HOMELAB".
 const GROUP_PRESETS = ['Homelab', 'Network', 'Cloud', 'Work', 'IoT'];
-const groupPresetsId = useId();
+const NEW_GROUP = '__new__';
+const knownGroups = ref<string[]>([]);
+const groupSelect = ref('');
+const typingNewGroup = ref(false);
+
+const groupOptions = computed(() => {
+    const known = knownGroups.value.map(g => ({name: g, value: g, icon: 'fas fa-folder'}));
+    const presets = GROUP_PRESETS.filter(
+        p => !known.some(k => k.value.toLowerCase() === p.toLowerCase()),
+    ).map(p => ({name: p, value: p, icon: 'fas fa-folder'}));
+    return [
+        {name: 'No group', value: '', icon: 'fas fa-ban'},
+        ...presets,
+        ...known,
+        {name: 'New group…', value: NEW_GROUP, icon: 'fas fa-plus'},
+    ];
+});
+
+function onGroupSelect(value: string | number) {
+    if (value === NEW_GROUP) {
+        typingNewGroup.value = true;
+        config.data.group = '';
+    } else {
+        typingNewGroup.value = false;
+        config.data.group = String(value);
+    }
+}
+
+/** Reuse the saved casing when the typed name matches an existing group. */
+function normalizeGroup(raw: string): string {
+    const typed = raw.trim();
+    const hit = knownGroups.value.find(g => g.toLowerCase() === typed.toLowerCase());
+    return hit ?? typed;
+}
 
 const selectAuthType = ref([
     {
@@ -140,7 +177,8 @@ async function updateSSH(e: Event) {
         username: config.data.connection.username.trim(),
         transport: isTunnel ? 'cloudflare_access' : 'direct',
         os: config.data.os,
-        group: config.data.group.trim(),
+        group: typingNewGroup.value ? normalizeGroup(config.data.group) : config.data.group,
+        forwards: config.data.forwards,
         auth: isKey ? {kind: 'key', path: previewPasswordData.value} : {kind: 'password'},
     };
 
@@ -198,6 +236,15 @@ function onUpdateConnectionSelect(value: number) {
 }
 
 onMounted(() => {
+    void hostsList()
+        .then(hs => {
+            knownGroups.value = [...new Set(hs.map(x => x.group.trim()).filter(Boolean))];
+            // A freshly created group (this dialog's own save) is not on any host
+            // yet; keep it offered in the list for the next host.
+            if (config.data.group && !knownGroups.value.some(g => g.toLowerCase() === config.data.group.toLowerCase()))
+                knownGroups.value.push(config.data.group);
+        })
+        .catch(() => {});
     const h = props.host;
     if (props.actionType !== 'edit' || !h) return;
     config.data.title = h.name;
@@ -207,6 +254,9 @@ onMounted(() => {
     config.data.connection.password.type = h.auth.kind === 'key' ? 1 : 0;
     config.data.os = h.os;
     config.data.group = h.group;
+    config.data.forwards = h.forwards.map(f => ({...f}));
+    groupSelect.value = h.group;
+    typingNewGroup.value = false;
 
     previousConnectionType.value = config.data.connection.type;
     previewConnectionData.value = h.host;
@@ -277,20 +327,80 @@ onMounted(() => {
             name="Operating System"
             :data="selectOsType"
         />
-        <Text
-            v-model="config.data.group"
+        <Select
+            v-model="groupSelect"
             name="Group"
-            placeholder="Optional — e.g. Homelab"
-            :list="groupPresetsId"
-            maxlength="32"
+            :data="groupOptions"
+            @onChange="onGroupSelect"
         />
-        <datalist :id="groupPresetsId">
-            <option
-                v-for="g in GROUP_PRESETS"
-                :key="g"
-                :value="g"
-            />
-        </datalist>
+        <Text
+            v-if="typingNewGroup"
+            v-model="config.data.group"
+            name="New group name"
+            placeholder="e.g. DB servers"
+            maxlength="32"
+            :required="true"
+        />
+
+        <!-- Local port forwards (ssh -L), active while a session is open -->
+        <div class="space-y-2">
+            <p class="block text-base font-medium text-gray-700 dark:text-white mb-0">
+                Port forwards (optional)
+            </p>
+            <p class="text-xs text-[var(--c-muted)] -mt-1">
+                Forwards <code>127.0.0.1:local → remote_host:remote_port</code> while the session is open.
+            </p>
+            <div
+                v-for="(f, i) in config.data.forwards"
+                :key="i"
+                class="flex items-center gap-2"
+            >
+                <input
+                    v-model.number="f.local_port"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    placeholder="8080"
+                    required
+                    class="w-24 border-[1px] rounded-md px-2 py-2 text-sm border-[var(--c-border)] bg-[var(--c-card)] text-[var(--c-text)] focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
+                />
+                <span class="text-[var(--c-muted)]">→</span>
+                <input
+                    v-model="f.remote_host"
+                    placeholder="localhost"
+                    maxlength="253"
+                    required
+                    class="flex-1 border-[1px] rounded-md px-2 py-2 text-sm border-[var(--c-border)] bg-[var(--c-card)] text-[var(--c-text)] focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
+                />
+                <input
+                    v-model.number="f.remote_port"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    placeholder="80"
+                    required
+                    class="w-24 border-[1px] rounded-md px-2 py-2 text-sm border-[var(--c-border)] bg-[var(--c-card)] text-[var(--c-text)] focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
+                />
+                <Button
+                    type="button"
+                    variant="ghost"
+                    class="!px-2"
+                    :aria-label="`Remove forward ${i + 1}`"
+                    @click="config.data.forwards.splice(i, 1)"
+                >
+                    <Icon icon="fas fa-trash" />
+                </Button>
+            </div>
+            <Button
+                v-if="config.data.forwards.length < 16"
+                type="button"
+                variant="ghost"
+                @click="config.data.forwards.push({local_port: 0, remote_host: 'localhost', remote_port: 80})"
+            >
+                <Icon icon="fas fa-plus" />
+                Add forward
+            </Button>
+        </div>
         <Select
             v-model="config.data.connection.password.type"
             @onChange="onUpdatePasswordSelect"

@@ -29,10 +29,21 @@ pub struct AppState {
     secrets: Box<dyn SecretStore>,
     warnings: Mutex<Vec<String>>,
     known_hosts: PathBuf,
-    sessions: Mutex<HashMap<Uuid, mpsc::UnboundedSender<Cmd>>>,
-    /// Previous /proc snapshot per session, for CPU% and network-rate deltas.
-    samples: Mutex<HashMap<Uuid, (Sample, Instant)>>,
+    /// One entry per live session: command channel, shared handle, monitor
+    /// sample, and forward listeners. Everything dies together on teardown.
+    sessions: Mutex<HashMap<Uuid, SessionEntry>>,
     prompts: Mutex<HashMap<Uuid, oneshot::Sender<bool>>>,
+}
+
+/// One live SSH session's shared state.
+pub struct SessionEntry {
+    tx: mpsc::UnboundedSender<Cmd>,
+    /// Shared handle; SFTP and forward listeners open their own channels on it.
+    handle: std::sync::Arc<ssh::SessionHandle<ssh::Client>>,
+    /// Previous /proc snapshot per session, for CPU% and network-rate deltas.
+    sample: Option<(Sample, Instant)>,
+    /// Local forward listener tasks; aborted on session teardown.
+    listeners: Vec<tauri::async_runtime::JoinHandle<()>>,
 }
 
 impl AppState {
@@ -48,7 +59,6 @@ impl AppState {
             warnings: Mutex::new(warnings),
             known_hosts,
             sessions: Mutex::new(HashMap::new()),
-            samples: Mutex::new(HashMap::new()),
             prompts: Mutex::new(HashMap::new()),
         }
     }
@@ -91,8 +101,14 @@ impl AppState {
         sessions
             .get(&id)
             .ok_or(AppError::NotFound)?
+            .tx
             .send(cmd)
             .map_err(|_| AppError::NotFound)
+    }
+
+    /// Shared SSH handle for a live session, for SFTP-style extra channels.
+    pub fn handle_for(&self, id: Uuid) -> Option<std::sync::Arc<ssh::SessionHandle<ssh::Client>>> {
+        self.sessions.lock().ok()?.get(&id).map(|s| s.handle.clone())
     }
 
     pub fn write(&self, id: Uuid, data: String) -> AppResult<()> {
@@ -124,11 +140,11 @@ impl AppState {
             Err(_) => return Err(AppError::Timeout),
         };
         let now = stats::parse(&text);
-        let prev = self
-            .samples
-            .lock()
-            .map_err(|_| AppError::Internal)?
-            .insert(id, (now, Instant::now()));
+        let prev = {
+            let mut sessions = self.sessions.lock().map_err(|_| AppError::Internal)?;
+            let entry = sessions.get_mut(&id).ok_or(AppError::NotFound)?;
+            prev_and_set(&mut entry.sample, (now, Instant::now()))
+        };
         let secs = prev
             .as_ref()
             .map(|(_, at)| at.elapsed().as_secs_f64())
@@ -254,7 +270,24 @@ fn check_dims(cols: u32, rows: u32) -> AppResult<()> {
     }
 }
 
-fn send_json(events: &Channel, value: serde_json::Value) {
+/// Take the previous sample and store the new one (stats delta bookkeeping).
+fn prev_and_set(slot: &mut Option<(Sample, Instant)>, now: (Sample, Instant)) -> Option<(Sample, Instant)> {
+    slot.replace(now)
+}
+
+/// Remove a session and abort its forward listeners. Called from both the
+/// user-close path and the shell-loop-exit path.
+fn teardown_session(state: &AppState, sid: Uuid) {
+    if let Ok(mut sessions) = state.sessions.lock() {
+        if let Some(entry) = sessions.remove(&sid) {
+            for h in entry.listeners {
+                h.abort();
+            }
+        }
+    }
+}
+
+pub(crate) fn send_json(events: &Channel, value: serde_json::Value) {
     let _ = events.send(InvokeResponseBody::Json(value.to_string()));
 }
 
@@ -343,25 +376,52 @@ async fn open_session(
 
     let (tx, rx) = mpsc::unbounded_channel();
     let sid = Uuid::new_v4();
+    let handle = std::sync::Arc::new(handle);
+    let mut listeners = Vec::new();
+    for fw in host.forwards.clone() {
+        let handle = handle.clone();
+        let events_fw = events.clone();
+        listeners.push(tauri::async_runtime::spawn(async move {
+            // Bind errors (port taken) are logged and surfaced as an event; the
+            // session itself is never taken down by a broken forward.
+            match tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, fw.local_port)).await {
+                Ok(l) => {
+                    let _ = crate::forward::run_listener(handle, fw, events_fw, l).await;
+                }
+                Err(e) => {
+                    tracing::warn!(error = ?e, port = fw.local_port, "could not bind local forward");
+                    send_json(
+                        &events_fw,
+                        serde_json::json!({"type": "forward-error", "local_port": fw.local_port}),
+                    );
+                }
+            }
+        }));
+    }
     app.state::<AppState>()
         .sessions
         .lock()
         .map_err(|_| AppError::Internal)?
-        .insert(sid, tx);
-    tracing::info!(session = %sid, %host_id, "session opened");
+        .insert(
+            sid,
+            SessionEntry {
+                tx,
+                handle: handle.clone(),
+                sample: None,
+                listeners,
+            },
+        );
+    tracing::info!(session = %sid, %host_id, forwards = host.forwards.len(), "session opened");
 
+    let handle_for_shell = handle;
     tauri::async_runtime::spawn(async move {
         let data = events.clone();
-        let result = ssh::run_shell(handle, cols, rows, rx, move |bytes| {
-            let _ = data.send(InvokeResponseBody::Raw(bytes));
-        })
-        .await;
-        if let Ok(mut s) = app.state::<AppState>().sessions.lock() {
-            s.remove(&sid);
-        }
-        if let Ok(mut s) = app.state::<AppState>().samples.lock() {
-            s.remove(&sid);
-        }
+        let result =
+            ssh::run_shell(handle_for_shell, cols, rows, rx, move |bytes| {
+                let _ = data.send(InvokeResponseBody::Raw(bytes));
+            })
+            .await;
+        teardown_session(&app.state::<AppState>(), sid);
         if let Err(e) = &result {
             tracing::error!(session = %sid, error = ?e, "session ended with error");
         }
@@ -466,6 +526,7 @@ mod tests {
             transport: Transport::Direct,
             os: Os::Generic,
             group: String::new(),
+            forwards: Vec::new(),
             auth: Auth::Password,
         }
     }
@@ -620,12 +681,20 @@ mod tests {
         assert!(matches!(t.credential, Credential::Password(ref p) if p == "pw"));
     }
 
-    #[test]
-    fn session_inputs_are_bounded() {
-        let (s, _mem, _d) = setup();
+    #[tokio::test]
+    async fn session_inputs_are_bounded() {
+        let (s, _mem, d) = setup();
         let id = Uuid::new_v4();
         let (tx, mut rx) = mpsc::unbounded_channel();
-        s.sessions.lock().unwrap().insert(id, tx);
+        s.sessions.lock().unwrap().insert(
+            id,
+            SessionEntry {
+                tx,
+                handle: std::sync::Arc::new(crate::ssh::tests::test_handle(&d).await),
+                sample: None,
+                listeners: Vec::new(),
+            },
+        );
 
         assert!(matches!(
             s.write(id, "x".repeat(MAX_WRITE_LEN + 1)),
@@ -642,13 +711,21 @@ mod tests {
         assert!(matches!(rx.try_recv(), Ok(Cmd::Data(d)) if d == b"ls\r"));
     }
 
-    #[test]
-    fn open_session_count_tracks_sessions() {
-        let (s, _mem, _d) = setup();
+    #[tokio::test]
+    async fn open_session_count_tracks_sessions() {
+        let (s, _mem, d) = setup();
         assert_eq!(s.open_session_count(), 0);
         let id = Uuid::new_v4();
         let (tx, _rx) = mpsc::unbounded_channel();
-        s.sessions.lock().unwrap().insert(id, tx);
+        s.sessions.lock().unwrap().insert(
+            id,
+            SessionEntry {
+                tx,
+                handle: std::sync::Arc::new(crate::ssh::tests::test_handle(&d).await),
+                sample: None,
+                listeners: Vec::new(),
+            },
+        );
         assert_eq!(s.open_session_count(), 1);
     }
 

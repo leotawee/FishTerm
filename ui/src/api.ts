@@ -31,8 +31,16 @@ export interface HostView {
     os: Os;
     /** Free-text list section; empty = ungrouped. */
     group: string;
+    forwards: PortForward[];
     auth: Auth;
     has_secret: boolean;
+}
+
+/** Local forward (`ssh -L`), active while a session is open. */
+export interface PortForward {
+    local_port: number;
+    remote_host: string;
+    remote_port: number;
 }
 
 export interface HostInput {
@@ -44,6 +52,7 @@ export interface HostInput {
     transport: Transport;
     os: Os;
     group?: string;
+    forwards?: PortForward[];
     auth: Auth;
 }
 
@@ -88,6 +97,8 @@ export type SessionEvent =
     | {type: 'hostkey'; prompt_id: string; prompt: HostKeyPrompt}
     /** Cloudflare Access progress before the session id exists. */
     | {type: 'cf-login'; status: 'probe' | 'cache' | 'browser' | 'waiting' | 'token' | 'connecting'; attempt: number}
+    /** A forward channel could not be opened on the server. */
+    | {type: 'forward-error'; local_port: number}
     | {type: 'closed'; error: AppError | null};
 
 /** Raw `ArrayBuffer` messages are terminal output; objects are control events. */
@@ -109,3 +120,38 @@ export const hostkeyDecide = (promptId: string, accept: boolean) =>
 export const quitApp = () => invoke<void>('quit_app');
 /** Open a terminal link in the default browser (Rust allows http/https/mailto only). */
 export const urlOpen = (url: string) => invoke<void>('url_open', {url});
+
+export interface SftpEntry {
+    name: string;
+    path: string;
+    is_dir: boolean;
+    size: number;
+    modified: number | null;
+}
+
+export interface SftpProgress {
+    bytes: number;
+    total: number;
+}
+
+export interface SftpListing {
+    /** Server-canonical directory; always use this, never a client guess. */
+    cwd: string;
+    entries: SftpEntry[];
+}
+
+/** `path: ''` lists the remote home directory. */
+export const sftpLs = (id: string, path: string) => invoke<SftpListing>('sftp_ls', {id, path});
+export const sftpDownload = (id: string, remotePath: string, localPath: string, onProgress: (p: SftpProgress) => void) => {
+    const progress = new Channel<SftpProgress>(onProgress);
+    return invoke<number>('sftp_download', {id, remotePath, localPath, progress});
+};
+export const sftpUpload = (id: string, localPath: string, remotePath: string, onProgress: (p: SftpProgress) => void) => {
+    const progress = new Channel<SftpProgress>(onProgress);
+    return invoke<number>('sftp_upload', {id, localPath, remotePath, progress});
+};
+/** Download to an app temp copy and open it in macOS Quick Look. */
+export const sftpPreview = (id: string, remotePath: string, onProgress: (p: SftpProgress) => void) => {
+    const progress = new Channel<SftpProgress>(onProgress);
+    return invoke<void>('sftp_preview', {id, remotePath, progress});
+};

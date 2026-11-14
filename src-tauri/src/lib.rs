@@ -4,7 +4,9 @@ mod cfaccess;
 mod commands;
 mod error;
 mod secrets;
+mod forward;
 mod ssh;
+mod sftp;
 mod stats;
 mod store;
 
@@ -58,6 +60,16 @@ pub fn run() {
             let known_hosts = app.path().home_dir()?.join(".ssh").join("known_hosts");
             let secrets = Box::new(KeyringStore::new(KEYCHAIN_SERVICE));
             app.manage(AppState::new(store, secrets, warnings, known_hosts));
+
+            // Acrylic behind the translucent top bar; the overlay titlebar hides the
+            // native strip so the bar itself follows the theme.
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_effects(
+                    tauri::window::EffectsBuilder::new()
+                        .effect(tauri::window::Effect::UnderWindowBackground)
+                        .build(),
+                );
+            }
 
             // Native menu: Cmd+W / Cmd+Q accelerators fire here BEFORE the webview
             // sees any key, so the confirms live in App.vue behind these events.
@@ -134,6 +146,10 @@ pub fn run() {
             commands::session_stats,
             commands::hostkey_decide,
             commands::url_open,
+            sftp::sftp_ls,
+            sftp::sftp_download,
+            sftp::sftp_upload,
+            sftp::sftp_preview,
             commands::quit_app,
         ])
         .run(tauri::generate_context!())

@@ -9,6 +9,7 @@ import {getTermTheme} from '../appearance';
 
 import Button from '../components/Button.vue';
 import Dialog from '../components/Dialog.vue';
+import SftpDialog from '../components/dialog/sftp.vue';
 import {
     sessionOpen,
     sessionWrite,
@@ -162,6 +163,9 @@ function stopStats() {
 
 let sessionId: string | null = null;
 let unmounting = false;
+const showSftp = ref(false);
+// One-line notice per failing forward rule; cleared when the session closes.
+const forwardErrors = ref<string[]>([]);
 
 function fail(err: AppError) {
     stopElapsed();
@@ -182,6 +186,9 @@ function onEvent(msg: ArrayBuffer | SessionEvent) {
     } else if (msg.type === 'cf-login') {
         cfStatus.value = msg.status;
         cfAttempt.value = msg.attempt;
+    } else if (msg.type === 'forward-error') {
+        const line = `Port ${msg.local_port}: the server refused to open the tunnel.`;
+        if (!forwardErrors.value.includes(line)) forwardErrors.value.push(line);
     } else if (msg.type === 'closed') {
         sessionId = null;
         stopStats();
@@ -224,6 +231,7 @@ onMounted(async () => {
     if (termDiv.value) {
         term.open(termDiv.value);
         // Cmd+C copies the visible selection (Cmd+V paste is handled by xterm itself).
+        // Cmd+Shift+S opens the SFTP browser for the live session.
         termDiv.value?.addEventListener(
             'keydown',
             e => {
@@ -231,6 +239,10 @@ onMounted(async () => {
                     e.preventDefault();
                     e.stopPropagation();
                     void writeText(term.getSelection()).catch(() => {});
+                } else if (e.metaKey && e.shiftKey && e.key.toLowerCase() === 's' && sessionId) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showSftp.value = true;
                 }
             },
             true,
@@ -251,6 +263,7 @@ async function connect() {
     pageStep.value = 0;
     errorText.value = '';
     cfStatus.value = '';
+    forwardErrors.value = [];
     startElapsed();
     try {
         sent = `${term.cols}x${term.rows}`;
@@ -432,8 +445,29 @@ onBeforeUnmount(() => {
             </div>
         </div>
         <div
-            class="py-1 sticky bottom-0 space-x-3 flex bg-gray-200 z-50 w-full dark:bg-slate-800 text-[var(--c-text)] justify-end pr-2"
+            v-if="forwardErrors.length"
+            class="px-3 py-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40"
         >
+            <p
+                v-for="line in forwardErrors"
+                :key="line"
+                role="alert"
+                v-text="line"
+            />
+        </div>
+        <div
+            class="py-1 sticky bottom-0 space-x-3 flex bg-[var(--c-card)] z-50 w-full text-[var(--c-text)] justify-end pr-2"
+        >
+            <Button
+                v-if="isShow"
+                variant="ghost"
+                class="!mr-auto"
+                title="Browse remote files (⌘⇧S)"
+                @click="showSftp = true"
+            >
+                <Icon icon="fas fa-folder-open" />
+                Files
+            </Button>
             <div
                 class="flex items-center space-x-1"
                 aria-label="CPU usage"
@@ -514,6 +548,18 @@ onBeforeUnmount(() => {
                 </Button>
             </div>
         </div>
+    </Dialog>
+
+    <Dialog
+        :show="showSftp"
+        label="Remote files"
+        @close="showSftp = false"
+    >
+        <SftpDialog
+            v-if="sessionId"
+            :sessionId="sessionId"
+            @close="showSftp = false"
+        />
     </Dialog>
 </template>
 
