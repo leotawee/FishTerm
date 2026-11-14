@@ -1,7 +1,7 @@
 {
   "name": "fishterm",
   "description": "FishTerm: SSH client with Cloudflare Access tunnel support (Tauri v2 + Rust). Fork of sirilerklab/FishTerm.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "license": "MIT",

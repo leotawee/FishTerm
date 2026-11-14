@@ -1,6 +1,6 @@
 [package]
 name = "fishterm"
-version = "0.1.1"
+version = "0.1.2"
 description = "FishTerm: SSH client with Cloudflare Access support. Fork of sirilerklab/FishTerm."
 edition = "2024"
 license = "MIT"
