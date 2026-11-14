@@ -71,7 +71,7 @@ watch(tabIndex, (n: string) => {
     <div class="flex flex-col h-screen">
         <nav
             data-tauri-drag-region
-            class="z-50 w-full bg-[var(--c-bg)]/60 dark:bg-[var(--c-card)]/60 backdrop-blur-2xl"
+            class="nav-acrylic z-50 w-full backdrop-blur-2xl border-b border-[var(--c-border)]"
         >
             <!-- Overlay titlebar strip: traffic lights live here; the strip drags the window. -->
             <div
