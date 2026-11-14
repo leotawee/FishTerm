@@ -8,7 +8,6 @@ import {errorOf, sftpDownload, sftpLs, sftpPreview, sftpUpload, type SftpEntry, 
 import Button from '../Button.vue';
 
 const props = defineProps<{sessionId: string}>();
-const emit = defineEmits<{close: []}>();
 
 const cwd = ref('');
 const entries = ref<SftpEntry[]>([]);
@@ -129,24 +128,16 @@ onMounted(() => ls(''));
     <div class="text-left">
         <div class="flex items-center justify-between mb-2">
             <h1 class="text-xl font-bold text-[var(--c-text)]">Files</h1>
-            <div class="flex space-x-2">
-                <Button
-                    type="button"
-                    variant="ghost"
-                    :disabled="busy"
-                    @click="upload"
-                >
-                    <Icon icon="fas fa-arrow-up" />
-                    Upload
-                </Button>
-                <Button
-                    type="button"
-                    variant="ghost"
-                    @click="emit('close')"
-                >
-                    Close
-                </Button>
-            </div>
+            <!-- Close lives in the dialog corner (Dialog.vue's X); no second close here. -->
+            <Button
+                type="button"
+                variant="ghost"
+                :disabled="busy"
+                @click="upload"
+            >
+                <Icon icon="fas fa-arrow-up" />
+                Upload
+            </Button>
         </div>
 
         <!-- Breadcrumb -->
